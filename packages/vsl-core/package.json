@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@hyperledger/fabric-gateway": "^1.11.0",
     "@types/pg": "^8.23.1",
     "@vsl/merkle": "^0.1.0",
     "@vsl/shared": "^0.1.0",
