@@ -1,6 +1,7 @@
 import type { EvidenceEvent } from "@vsl/shared";
+import type { EvidenceRepository } from "./evidence-repository.js";
 
-export class InMemoryEvidenceRepository {
+export class InMemoryEvidenceRepository implements EvidenceRepository {
   private readonly events = new Map<string, EvidenceEvent[]>();
 
   save<T>(event: EvidenceEvent<T>): void {
@@ -43,17 +44,24 @@ export class InMemoryEvidenceRepository {
   }
 
   getVersion<T>(
+    resourceType: string,
     resourceId: string,
     version: number
   ): EvidenceEvent<T> | undefined {
     return this.events
       .get(resourceId)
-      ?.find((event) => event.version === version) as
-      | EvidenceEvent<T>
-      | undefined;
+      ?.find(
+        (event) =>
+          event.resourceType === resourceType &&
+          event.version === version
+      ) as EvidenceEvent<T> | undefined;
   }
 
-  getHistory<T>(resourceId: string): EvidenceEvent<T>[] {
-    return [...(this.events.get(resourceId) ?? [])] as EvidenceEvent<T>[];
+  getHistory<T>(
+    resourceType: string,
+    resourceId: string
+  ): EvidenceEvent<T>[] {
+    return [...(this.events.get(resourceId) ?? [])]
+      .filter((event) => event.resourceType === resourceType) as EvidenceEvent<T>[];
   }
 }

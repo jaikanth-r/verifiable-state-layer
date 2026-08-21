@@ -33,8 +33,8 @@ describe("InMemoryEvidenceRepository", () => {
     repository.save(v1);
     repository.save(v2);
 
-    expect(repository.getHistory("deal-001")).toHaveLength(2);
-    expect(repository.getVersion("deal-001", 2)?.state).toEqual({
+    expect(repository.getHistory("deal", "deal-001")).toHaveLength(2);
+    expect(repository.getVersion("deal", "deal-001", 2)?.state).toEqual({
       price: 42000
     });
   });
