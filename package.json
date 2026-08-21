@@ -1,0 +1,16 @@
+{
+  "name": "vsl",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Verifiable State Layer - blockchain-backed integrity middleware",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "typecheck": "npm run typecheck --workspaces"
+  }
+}
