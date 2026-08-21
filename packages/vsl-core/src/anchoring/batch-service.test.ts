@@ -3,6 +3,10 @@ import { Pool } from "pg";
 import { createHash } from "node:crypto";
 import { createEvidenceEvent } from "../evidence.js";
 import { MerkleBatchService } from "./batch-service.js";
+import type {
+  AnchorAdapter,
+  BlockchainAnchor
+} from "../blockchain/anchor-adapter.js";
 
 const pool = new Pool({
   connectionString:
@@ -131,6 +135,34 @@ async function insertEvent(
   }
 }
 
+class FakeAnchorAdapter implements AnchorAdapter {
+  constructor(
+    private readonly shouldFail = false
+  ) {}
+
+  async anchor(batch: {
+    batchId: string;
+    merkleRoot: string;
+    protocolVersion: string;
+  }): Promise<BlockchainAnchor> {
+    if (this.shouldFail) {
+      throw new Error("Fabric unavailable");
+    }
+
+    return {
+      batchId: batch.batchId,
+      merkleRoot: batch.merkleRoot,
+      protocolVersion: batch.protocolVersion,
+      anchoredAt: "2026-08-22T00:10:00.000Z",
+      transactionId: `tx-${batch.batchId}`
+    };
+  }
+
+  async getAnchor(): Promise<BlockchainAnchor | null> {
+    return null;
+  }
+}
+
 describe("MerkleBatchService", () => {
   it("creates a pending batch and links events", async () => {
     const v1 = await insertEvent(
@@ -196,6 +228,52 @@ describe("MerkleBatchService", () => {
     );
 
     expect(remaining.rows[0].count).toBe(1);
+  });
+
+  it("anchors a pending batch and records the blockchain reference", async () => {
+    await insertEvent(
+      "00000000-0000-4000-8000-000000000020",
+      1,
+      null
+    );
+
+    const adapter = new FakeAnchorAdapter();
+    const serviceWithAnchor = new MerkleBatchService(pool, adapter);
+
+    const batch = await serviceWithAnchor.createPendingBatch();
+
+    expect(batch).not.toBeNull();
+
+    const anchored = await serviceWithAnchor.anchorBatch(batch!.id);
+
+    expect(anchored.status).toBe("anchored");
+    expect(anchored.blockchainReference).toBe(`tx-${batch!.id}`);
+    expect(anchored.anchoredAt).toBe("2026-08-22T00:10:00.000Z");
+  });
+
+  it("marks a batch as failed when anchoring fails", async () => {
+    await insertEvent(
+      "00000000-0000-4000-8000-000000000021",
+      1,
+      null
+    );
+
+    const adapter = new FakeAnchorAdapter(true);
+    const serviceWithAnchor = new MerkleBatchService(pool, adapter);
+
+    const batch = await serviceWithAnchor.createPendingBatch();
+
+    expect(batch).not.toBeNull();
+
+    await expect(
+      serviceWithAnchor.anchorBatch(batch!.id)
+    ).rejects.toThrow("Fabric unavailable");
+
+    const failed = await serviceWithAnchor.getBatch(batch!.id);
+
+    expect(failed?.status).toBe("failed");
+    expect(failed?.blockchainReference).toBeNull();
+    expect(failed?.anchoredAt).toBeNull();
   });
 
   it("does not double-batch already linked events", async () => {

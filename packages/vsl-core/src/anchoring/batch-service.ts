@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+
 import type { EvidenceEvent, AnchorBatch } from "@vsl/shared";
 import { createMerkleBatch } from "@vsl/merkle";
+import type { AnchorAdapter } from "../blockchain/anchor-adapter.js";
 
 interface EventRow {
   event_id: string;
@@ -16,8 +18,22 @@ interface EventRow {
   previous_state_hash: string | null;
 }
 
+interface AnchorBatchRow {
+  id: string;
+  merkle_root: string;
+  protocol_version: string;
+  status: AnchorBatch["status"];
+  blockchain_reference: string | null;
+  event_count: number;
+  created_at: Date;
+  anchored_at: Date | null;
+}
+
 export class MerkleBatchService {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly anchorAdapter?: AnchorAdapter
+  ) {}
 
   async createPendingBatch(
     batchSize = 100
@@ -43,19 +59,9 @@ export class MerkleBatchService {
       );
 
       const batch = createMerkleBatch(evidenceEvents, "v1");
-
       const batchId = randomUUID();
 
-      const inserted = await client.query<{
-        id: string;
-        merkle_root: string;
-        protocol_version: string;
-        status: AnchorBatch["status"];
-        blockchain_reference: string | null;
-        event_count: number;
-        created_at: Date;
-        anchored_at: Date | null;
-      }>(
+      const inserted = await client.query<AnchorBatchRow>(
         `
         INSERT INTO anchor_batches (
           id,
@@ -102,6 +108,118 @@ export class MerkleBatchService {
     } finally {
       client.release();
     }
+  }
+
+  async anchorBatch(batchId: string): Promise<AnchorBatch> {
+    if (!this.anchorAdapter) {
+      throw new Error("AnchorAdapter is not configured");
+    }
+
+    const batch = await this.getBatch(batchId);
+
+    if (!batch) {
+      throw new Error(`Anchor batch not found: ${batchId}`);
+    }
+
+    if (batch.status === "anchored") {
+      return batch;
+    }
+
+    if (batch.status !== "pending" && batch.status !== "failed") {
+      throw new Error(
+        `Batch ${batchId} cannot be anchored from status ${batch.status}`
+      );
+    }
+
+    await this.setStatus(batchId, "submitted");
+
+    try {
+      const anchor = await this.anchorAdapter.anchor({
+        batchId: batch.id,
+        merkleRoot: batch.merkleRoot,
+        protocolVersion: batch.protocolVersion
+      });
+
+      const client = await this.pool.connect();
+
+      try {
+        await client.query("BEGIN");
+
+        const result = await client.query<AnchorBatchRow>(
+          `
+          UPDATE anchor_batches
+          SET
+            status = 'anchored',
+            blockchain_reference = $2,
+            anchored_at = $3
+          WHERE id = $1
+          RETURNING
+            id,
+            merkle_root,
+            protocol_version,
+            status,
+            blockchain_reference,
+            event_count,
+            created_at,
+            anchored_at
+          `,
+          [
+            batchId,
+            anchor.transactionId ?? anchor.anchoredAt,
+            anchor.anchoredAt
+          ]
+        );
+
+        await client.query("COMMIT");
+
+        return this.toAnchorBatch(result.rows[0]);
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      await this.setStatus(batchId, "failed");
+      throw error;
+    }
+  }
+
+  async getBatch(batchId: string): Promise<AnchorBatch | null> {
+    const result = await this.pool.query<AnchorBatchRow>(
+      `
+      SELECT
+        id,
+        merkle_root,
+        protocol_version,
+        status,
+        blockchain_reference,
+        event_count,
+        created_at,
+        anchored_at
+      FROM anchor_batches
+      WHERE id = $1
+      `,
+      [batchId]
+    );
+
+    return result.rows[0]
+      ? this.toAnchorBatch(result.rows[0])
+      : null;
+  }
+
+  private async setStatus(
+    batchId: string,
+    status: AnchorBatch["status"]
+  ): Promise<void> {
+    await this.pool.query(
+      `
+      UPDATE anchor_batches
+      SET status = $2
+      WHERE id = $1
+      `,
+      [batchId, status]
+    );
   }
 
   private async claimEvents(
@@ -156,16 +274,7 @@ export class MerkleBatchService {
     };
   }
 
-  private toAnchorBatch(row: {
-    id: string;
-    merkle_root: string;
-    protocol_version: string;
-    status: AnchorBatch["status"];
-    blockchain_reference: string | null;
-    event_count: number;
-    created_at: Date;
-    anchored_at: Date | null;
-  }): AnchorBatch {
+  private toAnchorBatch(row: AnchorBatchRow): AnchorBatch {
     return {
       id: row.id,
       merkleRoot: row.merkle_root,
