@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@types/pg": "^8.23.1",
+    "@vsl/merkle": "^0.1.0",
+    "@vsl/shared": "^0.1.0",
     "pg": "^8.23.0"
   }
 }
