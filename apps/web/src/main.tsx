@@ -8,9 +8,11 @@ import {
   getHistory,
   getBatch,
   verifyEvent,
+  getAuditEvents,
   type AnchorBatch,
   type VerificationResult,
-  type Version
+  type Version,
+  type AuditPage
 } from "./api";
 import "./styles.css";
 
@@ -23,8 +25,35 @@ function App() {
   const [batch, setBatch] = useState<AnchorBatch | null>(null);
   const [verification, setVerification] =
     useState<VerificationResult | null>(null);
+  const [audit, setAudit] = useState<AuditPage | null>(null);
+  const [auditOutcome, setAuditOutcome] = useState<
+    "" | "success" | "failure" | "denied"
+  >("");
+  const [auditBusy, setAuditBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+
+  async function loadAudit(offset = 0) {
+    setAuditBusy(true);
+
+    try {
+      const result = await getAuditEvents({
+        limit: 8,
+        offset,
+        outcome: auditOutcome || undefined
+      });
+
+      setAudit(result);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to load audit events"
+      );
+    } finally {
+      setAuditBusy(false);
+    }
+  }
 
   async function loadState(id: string) {
     const history = await getHistory(id);
@@ -44,6 +73,10 @@ function App() {
       setBatch(await getBatch(verificationResult.batchId));
     }
   }
+
+  React.useEffect(() => {
+    void loadAudit(0);
+  }, [auditOutcome]);
 
   async function handleCreateResource() {
     setBusy(true);
@@ -343,6 +376,135 @@ function App() {
           )}
         </article>
       </section>
+
+      <section className="card wide audit-panel">
+        <div className="card-header">
+          <div>
+            <p className="label">SECURITY AUDIT</p>
+            <h2>Recent events</h2>
+          </div>
+
+          <div className="audit-controls">
+            <select
+              value={auditOutcome}
+              onChange={(event) =>
+                setAuditOutcome(
+                  event.target.value as
+                    | ""
+                    | "success"
+                    | "failure"
+                    | "denied"
+                )
+              }
+              disabled={auditBusy}
+            >
+              <option value="">All outcomes</option>
+              <option value="success">Success</option>
+              <option value="failure">Failure</option>
+              <option value="denied">Denied</option>
+            </select>
+
+            <button
+              className="refresh"
+              onClick={() => void loadAudit(audit?.offset ?? 0)}
+              disabled={auditBusy}
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {auditBusy && (
+          <p className="muted audit-empty">
+            Loading audit events…
+          </p>
+        )}
+
+        {!auditBusy && audit?.items.length === 0 && (
+          <p className="muted audit-empty">
+            No audit events found.
+          </p>
+        )}
+
+        {!auditBusy && audit && audit.items.length > 0 && (
+          <>
+            <div className="audit-list">
+              {audit.items.map((event) => (
+                <div className="audit-row" key={event.id}>
+                  <div className="audit-main">
+                    <div className="audit-top">
+                      <strong>{event.action}</strong>
+                      <span
+                        className={`audit-outcome ${event.outcome}`}
+                      >
+                        {event.outcome}
+                      </span>
+                    </div>
+
+                    <div className="audit-meta">
+                      <span>
+                        {new Date(
+                          event.occurredAt
+                        ).toLocaleString()}
+                      </span>
+
+                      {event.resourceId && (
+                        <code>{event.resourceId}</code>
+                      )}
+
+                      {event.requestId && (
+                        <code>{event.requestId}</code>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="audit-pagination">
+              <button
+                className="refresh"
+                onClick={() =>
+                  void loadAudit(
+                    Math.max(0, audit.offset - audit.limit)
+                  )
+                }
+                disabled={
+                  auditBusy ||
+                  audit.offset === 0
+                }
+              >
+                Previous
+              </button>
+
+              <span className="muted">
+                {audit.offset + 1}–
+                {Math.min(
+                  audit.offset + audit.items.length,
+                  audit.count
+                )}{" "}
+                of {audit.count}
+              </span>
+
+              <button
+                className="refresh"
+                onClick={() =>
+                  void loadAudit(
+                    audit.offset + audit.limit
+                  )
+                }
+                disabled={
+                  auditBusy ||
+                  audit.offset + audit.limit >= audit.count
+                }
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+
     </main>
   );
 }

@@ -16,7 +16,11 @@ export function registerRequestContext(
   app: FastifyInstance
 ) {
   app.addHook("onRequest", async (request, reply) => {
-    if (request.url === "/health" || request.url === "/ready") {
+    if (
+      request.method === "OPTIONS" ||
+      request.url === "/health" ||
+      request.url === "/ready"
+    ) {
       return;
     }
 

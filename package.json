@@ -11,7 +11,8 @@
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "lint": "npm run lint --workspaces",
-    "typecheck": "npm run typecheck --workspaces"
+    "typecheck": "npm run typecheck --workspaces",
+    "db:migrate": "tsx scripts/migrate.ts"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

@@ -1,6 +1,9 @@
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ??
-  "http://172.20.10.2:3000";
+  "http://127.0.0.1:3000";
+
+const API_TOKEN =
+  import.meta.env.VITE_API_TOKEN;
 
 export interface Resource {
   id: string;
@@ -49,6 +52,10 @@ async function request<T>(
   options?: RequestInit
 ): Promise<T> {
   const headers = new Headers(options?.headers);
+
+  if (!headers.has("authorization") && API_TOKEN) {
+    headers.set("authorization", `Bearer ${API_TOKEN}`);
+  }
 
   if (options?.body !== undefined) {
     headers.set("content-type", "application/json");
@@ -136,5 +143,55 @@ export function getBatch(batchId: string) {
 export function verifyEvent(eventId: string) {
   return request<VerificationResult>(
     `/v1/verify/${eventId}`
+  );
+}
+
+export interface AuditRecord {
+  id: string;
+  occurredAt: string;
+  tenantId: string;
+  userId: string | null;
+  action: string;
+  outcome: "success" | "failure" | "denied";
+  resourceId: string | null;
+  requestId: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface AuditPage {
+  items: AuditRecord[];
+  limit: number;
+  offset: number;
+  count: number;
+}
+
+export function getAuditEvents(options: {
+  limit?: number;
+  offset?: number;
+  action?: string;
+  outcome?: "success" | "failure" | "denied";
+} = {}) {
+  const params = new URLSearchParams();
+
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+
+  if (options.offset !== undefined) {
+    params.set("offset", String(options.offset));
+  }
+
+  if (options.action) {
+    params.set("action", options.action);
+  }
+
+  if (options.outcome) {
+    params.set("outcome", options.outcome);
+  }
+
+  const query = params.toString();
+
+  return request<AuditPage>(
+    `/v1/audit${query ? `?${query}` : ""}`
   );
 }
