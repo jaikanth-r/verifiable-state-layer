@@ -8,6 +8,7 @@ import { evidenceRoutes } from "./routes/evidence.js";
 import { historyRoutes } from "./routes/history.js";
 import { batchRoutes } from "./routes/batches.js";
 import { verificationRoutes } from "./routes/verification.js";
+import { auditRoutes } from "./routes/audit.js";
 import { registerRequestContext } from "./services/request-context.js";
 import { PostgresAuditWriter } from "./services/postgres-audit-writer.js";
 
@@ -90,6 +91,7 @@ export function buildServer(options: ServerOptions = {}) {
     await scope.register(historyRoutes);
     await scope.register(batchRoutes);
     await scope.register(verificationRoutes);
+    await scope.register(auditRoutes);
   });
 
   app.setErrorHandler(async (error, request, reply) => {

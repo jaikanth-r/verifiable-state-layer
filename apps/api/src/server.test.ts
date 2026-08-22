@@ -589,4 +589,251 @@ describe("API security boundary", () => {
     }
   });
 
+  it("allows admins to query tenant-scoped audit events", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/audit?limit=10&offset=0",
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const body = response.json<{
+      items: Array<{
+        tenantId: string;
+        action: string;
+        outcome: string;
+      }>;
+      limit: number;
+      offset: number;
+      count: number;
+    }>();
+
+    expect(body.limit).toBe(10);
+    expect(body.offset).toBe(0);
+    expect(body.count).toBeGreaterThanOrEqual(1);
+    expect(body.items.length).toBeGreaterThan(0);
+
+    for (const item of body.items) {
+      expect(item.tenantId).toBe("2a46cf83-111b-4469-9bca-5e16196541f9");
+    }
+  });
+
+  it("denies members from querying audit events", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/audit",
+      headers: {
+        authorization: "Bearer dev-member-token"
+      }
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("filters audit events by action and outcome", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/audit?action=RESOURCE_CREATED&outcome=success",
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const body = response.json<{
+      items: Array<{
+        action: string;
+        outcome: string;
+        tenantId: string;
+      }>;
+    }>();
+
+    expect(body.items.length).toBeGreaterThan(0);
+
+    for (const item of body.items) {
+      expect(item.action).toBe("RESOURCE_CREATED");
+      expect(item.outcome).toBe("success");
+      expect(item.tenantId).toBe(
+        "2a46cf83-111b-4469-9bca-5e16196541f9"
+      );
+    }
+  });
+
+  it("rejects invalid audit query parameters", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/audit?limit=101",
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("paginates audit results", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/audit?limit=1&offset=0",
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const body = response.json<{
+      items: unknown[];
+      limit: number;
+      offset: number;
+      count: number;
+    }>();
+
+    expect(body.limit).toBe(1);
+    expect(body.offset).toBe(0);
+    expect(body.items.length).toBeLessThanOrEqual(1);
+  });
+
+  it("does not leak audit events across tenants", async () => {
+    const client = await pool.connect();
+
+    let tenantBId: string | undefined;
+    let userBId: string | undefined;
+
+    try {
+      await client.query("BEGIN");
+
+      const tenant = await client.query<{ id: string }>(
+        `
+        INSERT INTO tenants (name, slug)
+        VALUES ($1, $2)
+        RETURNING id
+        `,
+        [
+          "Audit Isolation Test Tenant",
+          `audit-isolation-${Date.now()}`
+        ]
+      );
+
+      tenantBId = tenant.rows[0].id;
+
+      const user = await client.query<{ id: string }>(
+        `
+        INSERT INTO users (external_subject, email)
+        VALUES ($1, $2)
+        RETURNING id
+        `,
+        [
+          `audit-isolation-user-${Date.now()}`,
+          `audit-isolation-${Date.now()}@vsl.local`
+        ]
+      );
+
+      userBId = user.rows[0].id;
+
+      await client.query(
+        `
+        INSERT INTO tenant_memberships (
+          tenant_id,
+          user_id,
+          role
+        )
+        VALUES ($1, $2, 'admin')
+        `,
+        [tenantBId, userBId]
+      );
+
+      await client.query(
+        `
+        INSERT INTO audit_events (
+          tenant_id,
+          user_id,
+          action,
+          outcome,
+          metadata
+        )
+        VALUES ($1, $2, 'TENANT_B_SECRET', 'success', $3::jsonb)
+        `,
+        [
+          tenantBId,
+          userBId,
+          JSON.stringify({
+            secret: "must-not-leak"
+          })
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/audit?action=TENANT_B_SECRET",
+        headers: {
+          authorization: "Bearer dev-admin-token"
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+
+      const body = response.json<{
+        items: Array<{
+          tenantId: string;
+          action: string;
+        }>;
+      }>();
+
+      expect(body.items).toHaveLength(0);
+    } finally {
+      try {
+        await client.query("BEGIN");
+
+        if (tenantBId) {
+          await client.query(
+            `
+            DELETE FROM audit_events
+            WHERE tenant_id = $1
+            `,
+            [tenantBId]
+          );
+
+          await client.query(
+            `
+            DELETE FROM tenant_memberships
+            WHERE tenant_id = $1
+            `,
+            [tenantBId]
+          );
+
+          if (userBId) {
+            await client.query(
+              `
+              DELETE FROM users
+              WHERE id = $1
+              `,
+              [userBId]
+            );
+          }
+
+          await client.query(
+            `
+            DELETE FROM tenants
+            WHERE id = $1
+            `,
+            [tenantBId]
+          );
+        }
+
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK");
+      }
+
+      client.release();
+    }
+  });
+
 });
