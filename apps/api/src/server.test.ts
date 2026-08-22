@@ -175,8 +175,6 @@ describe("API security boundary", () => {
       },
       payload: {
         eventType: "create",
-        actorId: "dev-member-user",
-        timestamp: new Date().toISOString(),
         state: {
           customer: "Audit Test",
           status: "open"
@@ -319,8 +317,6 @@ describe("API security boundary", () => {
       },
       payload: {
         eventType: "create",
-        actorId: "dev-member-user",
-        timestamp: new Date().toISOString(),
         state: {
           customer: "Anchor Audit Test",
           status: "open"

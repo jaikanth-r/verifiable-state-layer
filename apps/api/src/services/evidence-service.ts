@@ -1,17 +1,74 @@
 import { randomUUID } from "node:crypto";
 import { pool } from "../config/database.js";
 import type { AuthContext } from "./auth-context.js";
+import { servicesPromise } from "./application.js";
 import {
   createEvidenceEvent,
   type CreateEvidenceEventInput
 } from "@vsl/vsl-core";
+
+
+export async function protectEvidence(
+  auth: AuthContext,
+  resourceId: string,
+  requestId?: string
+) {
+  const { batchService } = await servicesPromise;
+
+  const retried =
+    await batchService.retryUnanchoredBatchForResource(
+      auth.tenantId,
+      resourceId,
+      auth.userId,
+      requestId
+    );
+
+  if (retried) {
+    return {
+      status: "protected" as const,
+      batch: retried
+    };
+  }
+
+  const batch = await batchService.createPendingBatch(
+    auth.tenantId,
+    100,
+    auth.userId,
+    requestId
+  );
+
+  if (!batch) {
+    return {
+      status: "already_protected" as const,
+      batch: null
+    };
+  }
+
+  const anchored = await batchService.anchorBatch(
+    auth.tenantId,
+    batch.id,
+    auth.userId,
+    requestId
+  );
+
+  return {
+    status: "protected" as const,
+    batch: anchored
+  };
+}
 
 export async function createEvent(
   auth: AuthContext,
   resourceId: string,
   input: Omit<
     CreateEvidenceEventInput<Record<string, unknown>>,
-    "eventId" | "resourceId" | "resourceType" | "version" | "previousStateHash"
+    | "eventId"
+    | "resourceId"
+    | "resourceType"
+    | "version"
+    | "previousStateHash"
+    | "actorId"
+    | "timestamp"
   >,
   requestId?: string
 ) {
@@ -70,6 +127,8 @@ export async function createEvent(
 
     const event = createEvidenceEvent({
       ...input,
+      actorId: auth.userId,
+      timestamp: new Date().toISOString(),
       eventId: randomUUID(),
       resourceId: resourceRow.external_id,
       resourceType: resourceRow.resource_type,

@@ -12,8 +12,6 @@ const createEventSchema = z.object({
     "complete",
     "revoke"
   ]),
-  actorId: z.string().min(1).max(255),
-  timestamp: z.string().datetime(),
   state: z.record(z.string(), z.unknown())
 }).strict();
 

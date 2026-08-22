@@ -134,6 +134,49 @@ export class MerkleBatchService {
     }
   }
 
+  async retryUnanchoredBatchForResource(
+    tenantId: string,
+    resourceId: string,
+    userId?: string,
+    requestId?: string
+  ): Promise<AnchorBatch | null> {
+    const result = await this.pool.query<AnchorBatchRow>(
+      `
+      SELECT DISTINCT
+        ab.id,
+        ab.merkle_root,
+        ab.protocol_version,
+        ab.status,
+        ab.blockchain_reference,
+        ab.event_count,
+        ab.created_at,
+        ab.anchored_at
+      FROM anchor_batches ab
+      JOIN evidence_events ee
+        ON ee.anchor_batch_id = ab.id
+      WHERE ab.tenant_id = $1
+        AND ee.resource_id = $2
+        AND ab.status IN ('pending', 'failed')
+      ORDER BY ab.created_at DESC
+      LIMIT 1
+      `,
+      [tenantId, resourceId]
+    );
+
+    const existing = result.rows[0];
+
+    if (!existing) {
+      return null;
+    }
+
+    return this.anchorBatch(
+      tenantId,
+      existing.id,
+      userId,
+      requestId
+    );
+  }
+
   async anchorBatch(
     tenantId: string,
     batchId: string,

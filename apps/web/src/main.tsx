@@ -18,9 +18,12 @@ import "./styles.css";
 
 function App() {
   const [resourceId, setResourceId] = useState("");
-  const [externalId, setExternalId] = useState(
-    `ui-demo-deal-${Date.now()}`
-  );
+  const [recordType, setRecordType] = useState("purchase");
+  const [externalId, setExternalId] = useState("");
+  const [customer, setCustomer] = useState("");
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState("INR");
+  const [status, setStatus] = useState("open");
   const [versions, setVersions] = useState<Version[]>([]);
   const [batch, setBatch] = useState<AnchorBatch | null>(null);
   const [verification, setVerification] =
@@ -110,26 +113,27 @@ function App() {
     setMessage("");
 
     try {
-      await createEvent(resourceId, {
-        eventType: versions.length === 0 ? "create" : "update",
-        actorId: "demo-user",
-        timestamp: new Date().toISOString(),
-        state:
-          versions.length === 0
-            ? {
-                customer: "Alice",
-                price: 35000,
-                status: "open"
-              }
-            : {
-                customer: "Alice",
-                price: 42000,
-                status: "approved"
-              }
+      const result = await createEvent(resourceId, {
+        eventType:
+          versions.length === 0 ? "create" : "update",
+        state: {
+          customer,
+          amount: Number(amount),
+          currency,
+          status
+        }
       });
 
+      setBatch(result.protection.batch);
       await loadState(resourceId);
-      setMessage("Evidence event created");
+
+      setMessage(
+        result.protection.status === "protected"
+          ? "Record updated and protected"
+          : result.protection.status === "already_protected"
+            ? "Record updated"
+            : "Record updated, but blockchain protection is pending"
+      );
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Failed"

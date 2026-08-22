@@ -89,6 +89,15 @@ export function createResource(input: {
   });
 }
 
+export interface EvidenceCreateResult {
+  event: Version;
+  protection: {
+    status: "protected" | "already_protected" | "failed";
+    batch: AnchorBatch | null;
+    error?: string;
+  };
+}
+
 export function createEvent(
   resourceId: string,
   input: {
@@ -99,12 +108,10 @@ export function createEvent(
       | "approve"
       | "complete"
       | "revoke";
-    actorId: string;
-    timestamp: string;
     state: Record<string, unknown>;
   }
 ) {
-  return request<Version>(
+  return request<EvidenceCreateResult>(
     `/v1/resources/${resourceId}/events`,
     {
       method: "POST",

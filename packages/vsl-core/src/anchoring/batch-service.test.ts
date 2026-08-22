@@ -59,7 +59,7 @@ async function insertEvent(
 ) {
   const event = createEvidenceEvent({
     eventId,
-    resourceId: "deal-001",
+    resourceId: "00000000-0000-4000-8000-000000000030",
     resourceType: "deal",
     version,
     eventType: version === 1 ? "create" : "update",
@@ -170,6 +170,8 @@ async function insertEvent(
   } finally {
     client.release();
   }
+
+  return event;
 }
 
 class FakeAnchorAdapter implements AnchorAdapter {
@@ -369,6 +371,126 @@ describe("MerkleBatchService", () => {
         error: "Fabric unavailable"
       }
     });
+  });
+
+  it("retries the failed batch belonging to the resource", async () => {
+    await insertEvent(
+      "00000000-0000-4000-8000-000000000030",
+      1,
+      null
+    );
+
+    const resourceResult = await pool.query<{ id: string }>(
+      `
+      SELECT r.id
+      FROM resources r
+      JOIN tenants t
+        ON t.id = r.tenant_id
+      WHERE t.slug = 'development'
+        AND r.resource_type = 'deal'
+        AND r.external_id = $1
+      `,
+      ["00000000-0000-4000-8000-000000000030"]
+    );
+
+    const resourceId = resourceResult.rows[0]?.id;
+
+    if (!resourceId) {
+      throw new Error("Test resource not found");
+    }
+
+    const failingAdapter = new FakeAnchorAdapter(true);
+    const failingService = new MerkleBatchService(
+      pool,
+      failingAdapter
+    );
+
+    const first = await failingService.createPendingBatch(
+      TEST_TENANT_ID
+    );
+
+    expect(first).not.toBeNull();
+
+    await expect(
+      failingService.anchorBatch(
+        TEST_TENANT_ID,
+        first!.id
+      )
+    ).rejects.toThrow("Fabric unavailable");
+
+    const successfulAdapter = new FakeAnchorAdapter();
+    const successfulService = new MerkleBatchService(
+      pool,
+      successfulAdapter
+    );
+
+    const retried =
+      await successfulService.retryUnanchoredBatchForResource(
+        TEST_TENANT_ID,
+        resourceId
+      );
+
+    expect(retried?.id).toBe(first!.id);
+    expect(retried?.status).toBe("anchored");
+
+    const batches = await pool.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM anchor_batches
+      WHERE tenant_id = $1
+      `,
+      [TEST_TENANT_ID]
+    );
+
+    expect(batches.rows[0].count).toBe(1);
+  });
+
+  it("does not retry a failed batch belonging to another resource", async () => {
+    await insertEvent(
+      "00000000-0000-4000-8000-000000000031",
+      1,
+      null
+    );
+
+    const failingAdapter = new FakeAnchorAdapter(true);
+    const failingService = new MerkleBatchService(
+      pool,
+      failingAdapter
+    );
+
+    const failedBatch =
+      await failingService.createPendingBatch(
+        TEST_TENANT_ID
+      );
+
+    expect(failedBatch).not.toBeNull();
+
+    await expect(
+      failingService.anchorBatch(
+        TEST_TENANT_ID,
+        failedBatch!.id
+      )
+    ).rejects.toThrow("Fabric unavailable");
+
+    const successfulService = new MerkleBatchService(
+      pool,
+      new FakeAnchorAdapter()
+    );
+
+    const unrelated =
+      await successfulService.retryUnanchoredBatchForResource(
+        TEST_TENANT_ID,
+        "00000000-0000-4000-8000-000000000031"
+      );
+
+    expect(unrelated).toBeNull();
+
+    const failed = await successfulService.getBatch(
+      TEST_TENANT_ID,
+      failedBatch!.id
+    );
+
+    expect(failed?.status).toBe("failed");
   });
 
   it("does not double-batch already linked events", async () => {
