@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { createResource } from "../services/resource-service.js";
+import { requireRole } from "../services/authorization.js";
 
 const createResourceSchema = z.object({
   resourceType: z.string().min(1).max(100),
@@ -9,6 +10,7 @@ const createResourceSchema = z.object({
 
 export async function resourceRoutes(app: FastifyInstance) {
   app.post("/v1/resources", async (request, reply) => {
+    requireRole(request.auth, "member");
     const parsed = createResourceSchema.safeParse(request.body);
 
     if (!parsed.success) {

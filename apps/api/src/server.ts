@@ -24,6 +24,20 @@ export function buildServer() {
   app.register(batchRoutes);
   app.register(verificationRoutes);
 
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof Error && error.message === "FORBIDDEN") {
+      return reply.code(403).send({
+        error: "FORBIDDEN"
+      });
+    }
+
+    request.log.error(error);
+
+    return reply.code(500).send({
+      error: "INTERNAL_SERVER_ERROR"
+    });
+  });
+
   app.get("/health", async () => {
     return {
       status: "ok",

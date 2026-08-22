@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { servicesPromise } from "../services/application.js";
+import { requireRole } from "../services/authorization.js";
 
 const createBatchSchema = z.object({
   batchSize: z.number().int().positive().max(1000).optional()
@@ -8,6 +9,7 @@ const createBatchSchema = z.object({
 
 export async function batchRoutes(app: FastifyInstance) {
   app.post("/v1/batches", async (request, reply) => {
+    requireRole(request.auth, "admin");
     const parsed = createBatchSchema.safeParse(request.body ?? {});
 
     if (!parsed.success) {
@@ -32,6 +34,7 @@ export async function batchRoutes(app: FastifyInstance) {
   });
 
   app.post("/v1/batches/:batchId/anchor", async (request, reply) => {
+    requireRole(request.auth, "admin");
     const { batchId } = request.params as { batchId: string };
 
     const { batchService } = await servicesPromise;

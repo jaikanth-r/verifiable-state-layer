@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { createEvent } from "../services/evidence-service.js";
+import { requireRole } from "../services/authorization.js";
 
 const createEventSchema = z.object({
   eventType: z.enum([
@@ -20,6 +21,7 @@ export async function evidenceRoutes(app: FastifyInstance) {
   app.post(
     "/v1/resources/:resourceId/events",
     async (request, reply) => {
+      requireRole(request.auth, "member");
       const parsed = createEventSchema.safeParse(request.body);
 
       if (!parsed.success) {
