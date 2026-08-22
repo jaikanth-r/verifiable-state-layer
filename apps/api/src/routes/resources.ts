@@ -18,8 +18,22 @@ export async function resourceRoutes(app: FastifyInstance) {
       });
     }
 
-    const resource = await createResource(parsed.data);
+    try {
+      const resource = await createResource(parsed.data);
 
-    return reply.code(201).send(resource);
+      return reply.code(201).send(resource);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes("already exists")
+      ) {
+        return reply.code(409).send({
+          error: "RESOURCE_ALREADY_EXISTS",
+          message: error.message
+        });
+      }
+
+      throw error;
+    }
   });
 }

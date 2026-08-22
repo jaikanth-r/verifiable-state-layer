@@ -1,8 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  getBatch,
+  createResource,
+  createEvent,
+  createBatch,
+  anchorBatch,
   getHistory,
+  getBatch,
   verifyEvent,
   type AnchorBatch,
   type VerificationResult,
@@ -10,55 +14,151 @@ import {
 } from "./api";
 import "./styles.css";
 
-const RESOURCE_ID =
-  "36273418-a9cd-4ccb-b3ea-23c81ef17fb6";
-
 function App() {
+  const [resourceId, setResourceId] = useState("");
+  const [externalId, setExternalId] = useState(
+    `ui-demo-deal-${Date.now()}`
+  );
   const [versions, setVersions] = useState<Version[]>([]);
   const [batch, setBatch] = useState<AnchorBatch | null>(null);
   const [verification, setVerification] =
     useState<VerificationResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
 
-  async function loadDashboard() {
-    try {
-      setLoading(true);
-      setError(null);
+  async function loadState(id: string) {
+    const history = await getHistory(id);
+    setVersions(history.versions);
 
-      const history = await getHistory(RESOURCE_ID);
-      setVersions(history.versions);
+    const latest = history.versions.at(-1);
+    if (!latest) {
+      setBatch(null);
+      setVerification(null);
+      return;
+    }
 
-      const latestEvent =
-        history.versions[history.versions.length - 1];
+    const verificationResult = await verifyEvent(latest.eventId);
+    setVerification(verificationResult);
 
-      if (!latestEvent) {
-        setBatch(null);
-        setVerification(null);
-        return;
-      }
-
-      const result = await verifyEvent(latestEvent.eventId);
-      setVerification(result);
-
-      if (result.batchId) {
-        const batchResult = await getBatch(result.batchId);
-        setBatch(batchResult);
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to load VSL state"
-      );
-    } finally {
-      setLoading(false);
+    if (verificationResult.batchId) {
+      setBatch(await getBatch(verificationResult.batchId));
     }
   }
 
-  useEffect(() => {
-    void loadDashboard();
-  }, []);
+  async function handleCreateResource() {
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const resource = await createResource({
+        resourceType: "deal",
+        externalId
+      });
+
+      setResourceId(resource.id);
+      setVersions([]);
+      setBatch(null);
+      setVerification(null);
+
+      setMessage(`Created ${resource.externalId}`);
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreateEvent() {
+    if (!resourceId) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      await createEvent(resourceId, {
+        eventId: globalThis.crypto?.randomUUID
+  ? globalThis.crypto.randomUUID()
+  : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = Math.floor(Math.random() * 16);
+      const v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    }),
+        eventType: versions.length === 0 ? "create" : "update",
+        actorId: "demo-user",
+        timestamp: new Date().toISOString(),
+        state:
+          versions.length === 0
+            ? {
+                customer: "Alice",
+                price: 35000,
+                status: "open"
+              }
+            : {
+                customer: "Alice",
+                price: 42000,
+                status: "approved"
+              }
+      });
+
+      await loadState(resourceId);
+      setMessage("Evidence event created");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreateBatch() {
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const result = await createBatch(100);
+
+      if (!result) {
+        setMessage("No unbatched events");
+        return;
+      }
+
+      setBatch(result);
+      setMessage("Merkle batch created");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAnchor() {
+    if (!batch) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const anchored = await anchorBatch(batch.id);
+      setBatch(anchored);
+
+      if (resourceId) {
+        await loadState(resourceId);
+      }
+
+      setMessage("Anchored to Hyperledger Fabric");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <main className="app">
@@ -68,55 +168,103 @@ function App() {
           <h1>Integrity Dashboard</h1>
         </div>
 
-        <button
-          className="refresh"
-          onClick={() => void loadDashboard()}
-          disabled={loading}
-        >
-          {loading ? "Loading..." : "Refresh"}
-        </button>
+        <span className="badge neutral">LIVE DEMO</span>
       </header>
 
-      {error && <div className="error">{error}</div>}
+      <section className="card demo-controls">
+        <p className="label">DEMO WORKFLOW</p>
+
+        <div className="resource-controls">
+          <input
+            value={externalId}
+            onChange={(event) =>
+              setExternalId(event.target.value)
+            }
+            placeholder="Resource external ID"
+          />
+
+          <button
+            onClick={() => void handleCreateResource()}
+            disabled={busy}
+          >
+            1. Create Resource
+          </button>
+
+          <button
+            onClick={() => void handleCreateEvent()}
+            disabled={busy || !resourceId}
+          >
+            2. Create Evidence
+          </button>
+
+          <button
+            onClick={() => void handleCreateBatch()}
+            disabled={busy || versions.length === 0}
+          >
+            3. Create Batch
+          </button>
+
+          <button
+            onClick={() => void handleAnchor()}
+            disabled={busy || !batch || batch.status === "anchored"}
+          >
+            4. Anchor to Fabric
+          </button>
+        </div>
+
+        {resourceId && (
+          <code className="resource-id">
+            Resource ID: {resourceId}
+          </code>
+        )}
+
+        {message && <p className="message">{message}</p>}
+      </section>
 
       <section className="grid">
         <article className="card wide">
           <div className="card-header">
             <div>
-              <p className="label">RESOURCE</p>
-              <h2>demo-deal-001</h2>
+              <p className="label">EVIDENCE HISTORY</p>
+              <h2>{versions.length} versions</h2>
             </div>
-            <span className="badge neutral">
-              {versions.length} versions
-            </span>
           </div>
 
-          <div className="timeline">
-            {versions.map((version) => (
-              <div className="timeline-item" key={version.eventId}>
-                <div className="timeline-marker" />
+          {versions.length === 0 ? (
+            <p className="muted">
+              Create a resource and evidence event.
+            </p>
+          ) : (
+            <div className="timeline">
+              {versions.map((version) => (
+                <div
+                  className="timeline-item"
+                  key={version.eventId}
+                >
+                  <div className="timeline-marker" />
 
-                <div className="timeline-content">
-                  <div className="timeline-top">
-                    <strong>Version {version.version}</strong>
-                    <span>{version.eventType}</span>
+                  <div className="timeline-content">
+                    <div className="timeline-top">
+                      <strong>
+                        Version {version.version}
+                      </strong>
+                      <span>{version.eventType}</span>
+                    </div>
+
+                    <p>{JSON.stringify(version.state)}</p>
+
+                    <code>{version.stateHash}</code>
+
+                    {version.previousStateHash && (
+                      <small>
+                        Previous: {version.previousStateHash}
+                      </small>
+                    )}
                   </div>
-
-                  <p>
-                    {JSON.stringify(version.state)}
-                  </p>
-
-                  <code>{version.stateHash}</code>
-
-                  {version.previousStateHash && (
-                    <small>
-                      Previous: {version.previousStateHash}
-                    </small>
-                  )}
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </article>
 
         <article className="card">
@@ -152,13 +300,6 @@ function App() {
             </strong>
           </div>
 
-          <div className="metric">
-            <span>Protocol</span>
-            <strong>
-              {batch?.protocolVersion ?? "—"}
-            </strong>
-          </div>
-
           <div className="hash-box">
             {batch?.blockchainReference ??
               "No transaction"}
@@ -167,7 +308,7 @@ function App() {
 
         <article className="card wide verification">
           <div>
-            <p className="label">INTEGRITY VERIFICATION</p>
+            <p className="label">INTEGRITY</p>
 
             <h2
               className={
@@ -178,12 +319,12 @@ function App() {
             >
               {verification?.valid
                 ? "✓ VERIFIED"
-                : "Verification unavailable"}
+                : "Not verified"}
             </h2>
 
             <p className="muted">
-              The event's Merkle proof resolves to the
-              stored batch root.
+              Merkle proof verification against the stored
+              batch root.
             </p>
           </div>
 
