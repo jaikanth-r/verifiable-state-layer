@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pool } from "../config/database.js";
 import {
   createEvidenceEvent,
@@ -8,7 +9,7 @@ export async function createEvent(
   resourceId: string,
   input: Omit<
     CreateEvidenceEventInput<Record<string, unknown>>,
-    "resourceId" | "resourceType" | "version" | "previousStateHash"
+    "eventId" | "resourceId" | "resourceType" | "version" | "previousStateHash"
   >
 ) {
   const client = await pool.connect();
@@ -65,6 +66,7 @@ export async function createEvent(
 
     const event = createEvidenceEvent({
       ...input,
+      eventId: randomUUID(),
       resourceId: resourceRow.external_id,
       resourceType: resourceRow.resource_type,
       version,

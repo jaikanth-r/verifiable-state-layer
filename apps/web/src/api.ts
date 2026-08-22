@@ -85,7 +85,6 @@ export function createResource(input: {
 export function createEvent(
   resourceId: string,
   input: {
-    eventId: string;
     eventType:
       | "create"
       | "update"

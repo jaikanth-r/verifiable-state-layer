@@ -3,7 +3,6 @@ import { z } from "zod";
 import { createEvent } from "../services/evidence-service.js";
 
 const createEventSchema = z.object({
-  eventId: z.string().uuid(),
   eventType: z.enum([
     "create",
     "update",
