@@ -4,8 +4,8 @@ import { createEvidenceEvent } from "../../evidence.js";
 import { PostgresEvidenceRepository } from "../postgres-repository.js";
 
 const DATABASE_URL =
-  process.env.DATABASE_URL ??
-  "postgresql://vsl:vsl_dev_password@127.0.0.1:5432/vsl";
+  process.env.TEST_DATABASE_URL ??
+  "postgresql://vsl:vsl_dev_password@127.0.0.1:5432/vsl_test";
 
 const pool = new Pool({
   connectionString: DATABASE_URL
