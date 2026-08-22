@@ -1,6 +1,7 @@
 import { MerkleBatchService } from "@vsl/vsl-core";
 import { FabricAnchorAdapter } from "@vsl/vsl-core";
 import { pool } from "../config/database.js";
+import { PostgresAuditWriter } from "./postgres-audit-writer.js";
 
 const HOME = process.env.HOME!;
 
@@ -27,7 +28,7 @@ const fabricAdapterPromise = FabricAnchorAdapter.connect({
 export const servicesPromise = fabricAdapterPromise.then(
   (fabricAdapter) => ({
     fabricAdapter,
-    batchService: new MerkleBatchService(pool, fabricAdapter)
+    batchService: new MerkleBatchService(pool, fabricAdapter, new PostgresAuditWriter())
   })
 );
 

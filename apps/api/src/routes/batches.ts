@@ -23,7 +23,9 @@ export async function batchRoutes(app: FastifyInstance) {
 
     const batch = await batchService.createPendingBatch(
       request.auth.tenantId,
-      parsed.data.batchSize ?? 100
+      parsed.data.batchSize ?? 100,
+      request.auth.userId,
+      request.id
     );
 
     if (!batch) {
@@ -42,7 +44,9 @@ export async function batchRoutes(app: FastifyInstance) {
     try {
       const batch = await batchService.anchorBatch(
         request.auth.tenantId,
-        batchId
+        batchId,
+	request.auth.userId,
+	request.id
       );
       return reply.send(batch);
     } catch (error) {

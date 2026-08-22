@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+
 import { pool } from "../config/database.js";
+
 import type { AuthContext } from "./auth-context.js";
 
 export interface CreateResourceInput {
@@ -16,12 +18,16 @@ export interface ResourceRecord {
 
 export async function createResource(
   auth: AuthContext,
-  input: CreateResourceInput
+  input: CreateResourceInput,
+  requestId?: string
 ): Promise<ResourceRecord> {
   const externalId = input.externalId ?? randomUUID();
+  const client = await pool.connect();
 
   try {
-    const result = await pool.query<{
+    await client.query("BEGIN");
+
+    const result = await client.query<{
       id: string;
       resource_type: string;
       external_id: string;
@@ -45,6 +51,35 @@ export async function createResource(
 
     const row = result.rows[0];
 
+    await client.query(
+      `
+      INSERT INTO audit_events (
+        tenant_id,
+        user_id,
+        action,
+        outcome,
+        resource_id,
+        request_id,
+        metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+      `,
+      [
+        auth.tenantId,
+        auth.userId,
+        "RESOURCE_CREATED",
+        "success",
+        row.id,
+        requestId ?? null,
+        JSON.stringify({
+          resourceType: row.resource_type,
+          externalId: row.external_id
+        })
+      ]
+    );
+
+    await client.query("COMMIT");
+
     return {
       id: row.id,
       resourceType: row.resource_type,
@@ -52,6 +87,8 @@ export async function createResource(
       createdAt: row.created_at.toISOString()
     };
   } catch (error) {
+    await client.query("ROLLBACK");
+
     if (
       typeof error === "object" &&
       error !== null &&
@@ -64,5 +101,7 @@ export async function createResource(
     }
 
     throw error;
+  } finally {
+    client.release();
   }
 }

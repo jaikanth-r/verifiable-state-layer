@@ -21,7 +21,11 @@ export async function resourceRoutes(app: FastifyInstance) {
     }
 
     try {
-      const resource = await createResource(request.auth, parsed.data);
+      const resource = await createResource(
+        request.auth,
+        parsed.data,
+        request.id
+      );
 
       return reply.code(201).send(resource);
     } catch (error) {

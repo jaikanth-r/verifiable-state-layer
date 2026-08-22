@@ -3,6 +3,7 @@ import { Pool } from "pg";
 import { createHash } from "node:crypto";
 import { createEvidenceEvent } from "../evidence.js";
 import { MerkleBatchService } from "./batch-service.js";
+import type { AuditWrite, AuditWriter } from "../auditing/audit-writer.js";
 import type {
   AnchorAdapter,
   BlockchainAnchor
@@ -199,6 +200,14 @@ class FakeAnchorAdapter implements AnchorAdapter {
   }
 }
 
+class FakeAuditWriter implements AuditWriter {
+  readonly events: AuditWrite[] = [];
+
+  async write(event: AuditWrite): Promise<void> {
+    this.events.push(event);
+  }
+}
+
 describe("MerkleBatchService", () => {
   it("creates a pending batch and links events", async () => {
     const v1 = await insertEvent(
@@ -274,7 +283,12 @@ describe("MerkleBatchService", () => {
     );
 
     const adapter = new FakeAnchorAdapter();
-    const serviceWithAnchor = new MerkleBatchService(pool, adapter);
+    const auditWriter = new FakeAuditWriter();
+    const serviceWithAnchor = new MerkleBatchService(
+      pool,
+      adapter,
+      auditWriter
+    );
 
     const batch = await serviceWithAnchor.createPendingBatch(TEST_TENANT_ID);
 
@@ -285,6 +299,27 @@ describe("MerkleBatchService", () => {
     expect(anchored.status).toBe("anchored");
     expect(anchored.blockchainReference).toBe(`tx-${batch!.id}`);
     expect(anchored.anchoredAt).toBe("2026-08-22T00:10:00.000Z");
+
+    expect(auditWriter.events).toHaveLength(2);
+
+    expect(auditWriter.events[0]).toMatchObject({
+      action: "BATCH_CREATED",
+      outcome: "success",
+      tenantId: TEST_TENANT_ID,
+      resourceId: batch!.id
+    });
+
+    expect(auditWriter.events[1]).toMatchObject({
+      action: "BATCH_ANCHORED",
+      outcome: "success",
+      tenantId: TEST_TENANT_ID,
+      resourceId: batch!.id,
+      metadata: {
+        merkleRoot: batch!.merkleRoot,
+        protocolVersion: batch!.protocolVersion,
+        transactionId: `tx-${batch!.id}`
+      }
+    });
   });
 
   it("marks a batch as failed when anchoring fails", async () => {
@@ -295,7 +330,12 @@ describe("MerkleBatchService", () => {
     );
 
     const adapter = new FakeAnchorAdapter(true);
-    const serviceWithAnchor = new MerkleBatchService(pool, adapter);
+    const auditWriter = new FakeAuditWriter();
+    const serviceWithAnchor = new MerkleBatchService(
+      pool,
+      adapter,
+      auditWriter
+    );
 
     const batch = await serviceWithAnchor.createPendingBatch(TEST_TENANT_ID);
 
@@ -310,6 +350,25 @@ describe("MerkleBatchService", () => {
     expect(failed?.status).toBe("failed");
     expect(failed?.blockchainReference).toBeNull();
     expect(failed?.anchoredAt).toBeNull();
+
+    expect(auditWriter.events).toHaveLength(2);
+
+    expect(auditWriter.events[0]).toMatchObject({
+      action: "BATCH_CREATED",
+      outcome: "success",
+      tenantId: TEST_TENANT_ID,
+      resourceId: batch!.id
+    });
+
+    expect(auditWriter.events[1]).toMatchObject({
+      action: "BATCH_ANCHOR_FAILED",
+      outcome: "failure",
+      tenantId: TEST_TENANT_ID,
+      resourceId: batch!.id,
+      metadata: {
+        error: "Fabric unavailable"
+      }
+    });
   });
 
   it("does not double-batch already linked events", async () => {

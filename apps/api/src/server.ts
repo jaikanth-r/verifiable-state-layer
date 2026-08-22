@@ -9,6 +9,9 @@ import { historyRoutes } from "./routes/history.js";
 import { batchRoutes } from "./routes/batches.js";
 import { verificationRoutes } from "./routes/verification.js";
 import { registerRequestContext } from "./services/request-context.js";
+import { PostgresAuditWriter } from "./services/postgres-audit-writer.js";
+
+const auditWriter = new PostgresAuditWriter();
 
 export interface ServerOptions {
   rateLimitMax?: number;
@@ -89,8 +92,24 @@ export function buildServer(options: ServerOptions = {}) {
     await scope.register(verificationRoutes);
   });
 
-  app.setErrorHandler((error, request, reply) => {
+  app.setErrorHandler(async (error, request, reply) => {
     if (error instanceof Error && error.message === "FORBIDDEN") {
+      try {
+        await auditWriter.write({
+          tenantId: request.auth?.tenantId,
+          userId: request.auth?.userId,
+          action: "AUTHORIZATION_DENIED",
+          outcome: "denied",
+          requestId: request.id,
+          metadata: {
+            method: request.method,
+            url: request.url
+          }
+        });
+      } catch (auditError) {
+        request.log.error(auditError);
+      }
+
       return reply.code(403).send({
         error: "FORBIDDEN"
       });
@@ -102,6 +121,22 @@ export function buildServer(options: ServerOptions = {}) {
       "statusCode" in error &&
       error.statusCode === 429
     ) {
+      try {
+        await auditWriter.write({
+          tenantId: request.auth?.tenantId,
+          userId: request.auth?.userId,
+          action: "RATE_LIMITED",
+          outcome: "denied",
+          requestId: request.id,
+          metadata: {
+            method: request.method,
+            url: request.url
+          }
+        });
+      } catch (auditError) {
+        request.log.error(auditError);
+      }
+
       return reply.code(429).send({
         error: "RATE_LIMITED"
       });

@@ -4,6 +4,7 @@ import { Pool, type PoolClient } from "pg";
 import type { EvidenceEvent, AnchorBatch } from "@vsl/shared";
 import { createMerkleBatch } from "@vsl/merkle";
 import type { AnchorAdapter } from "../blockchain/anchor-adapter.js";
+import type { AuditWriter } from "../auditing/audit-writer.js";
 
 interface EventRow {
   event_id: string;
@@ -32,12 +33,15 @@ interface AnchorBatchRow {
 export class MerkleBatchService {
   constructor(
     private readonly pool: Pool,
-    private readonly anchorAdapter?: AnchorAdapter
+    private readonly anchorAdapter?: AnchorAdapter,
+    private readonly auditWriter?: AuditWriter
   ) {}
 
   async createPendingBatch(
     tenantId: string,
-    batchSize = 100
+    batchSize = 100,
+    userId?: string,
+    requestId?: string
   ): Promise<AnchorBatch | null> {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new Error("batchSize must be a positive integer");
@@ -102,6 +106,23 @@ export class MerkleBatchService {
         [batchId, batch.eventIds]
       );
 
+      await this.auditWriter?.write(
+        {
+          tenantId,
+	  userId,
+          action: "BATCH_CREATED",
+          outcome: "success",
+          resourceId: batchId,
+	  requestId,
+          metadata: {
+            merkleRoot: batch.merkleRoot,
+            protocolVersion: batch.protocolVersion,
+            eventCount: batch.eventIds.length
+          }
+        },
+        client
+      );
+
       await client.query("COMMIT");
 
       return this.toAnchorBatch(inserted.rows[0]);
@@ -115,7 +136,9 @@ export class MerkleBatchService {
 
   async anchorBatch(
     tenantId: string,
-    batchId: string
+    batchId: string,
+    userId?: string,
+    requestId?: string
   ): Promise<AnchorBatch> {
     if (!this.anchorAdapter) {
       throw new Error("AnchorAdapter is not configured");
@@ -180,6 +203,21 @@ export class MerkleBatchService {
 
         await client.query("COMMIT");
 
+        await this.auditWriter?.write({
+          tenantId,
+	  userId,
+          action: "BATCH_ANCHORED",
+          outcome: "success",
+          resourceId: batchId,
+	  requestId,
+          metadata: {
+            merkleRoot: batch.merkleRoot,
+            protocolVersion: batch.protocolVersion,
+            transactionId: anchor.transactionId ?? null,
+            anchoredAt: anchor.anchoredAt
+          }
+        });
+
         return this.toAnchorBatch(result.rows[0]);
       } catch (error) {
         await client.query("ROLLBACK");
@@ -189,6 +227,22 @@ export class MerkleBatchService {
       }
     } catch (error) {
       await this.setStatus(tenantId, batchId, "failed");
+
+      await this.auditWriter?.write({
+        tenantId,
+	userId,
+        action: "BATCH_ANCHOR_FAILED",
+        outcome: "failure",
+        resourceId: batchId,
+	requestId,
+        metadata: {
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error)
+        }
+      });
+
       throw error;
     }
   }

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AuthContext } from "./auth-context.js";
 import { createAuthenticator } from "./authenticator-factory.js";
+import { PostgresAuditWriter } from "./postgres-audit-writer.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -9,6 +10,7 @@ declare module "fastify" {
 }
 
 const authenticator = createAuthenticator();
+const auditWriter = new PostgresAuditWriter();
 
 export function registerRequestContext(
   app: FastifyInstance
@@ -23,6 +25,20 @@ export function registerRequestContext(
     );
 
     if (!auth) {
+      try {
+        await auditWriter.write({
+          action: "AUTHENTICATION_FAILED",
+          outcome: "failure",
+          requestId: request.id,
+          metadata: {
+            method: request.method,
+            url: request.url
+          }
+        });
+      } catch (error) {
+        request.log.error(error);
+      }
+
       return reply.code(401).send({
         error: "UNAUTHENTICATED"
       });

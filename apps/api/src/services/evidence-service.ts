@@ -12,7 +12,8 @@ export async function createEvent(
   input: Omit<
     CreateEvidenceEventInput<Record<string, unknown>>,
     "eventId" | "resourceId" | "resourceType" | "version" | "previousStateHash"
-  >
+  >,
+  requestId?: string
 ) {
   const client = await pool.connect();
 
@@ -122,6 +123,35 @@ export async function createEvent(
         event.timestamp,
         event.stateHash,
         event.previousStateHash
+      ]
+    );
+
+    await client.query(
+      `
+      INSERT INTO audit_events (
+        tenant_id,
+        user_id,
+        action,
+        outcome,
+        resource_id,
+        request_id,
+        metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+      `,
+      [
+        auth.tenantId,
+        auth.userId,
+        "EVIDENCE_CREATED",
+        "success",
+        resourceId,
+        requestId ?? null,
+        JSON.stringify({
+          eventId: event.eventId,
+          eventType: event.eventType,
+          version: event.version,
+          stateHash: event.stateHash
+        })
       ]
     );
 
