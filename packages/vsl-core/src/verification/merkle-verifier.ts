@@ -16,7 +16,10 @@ export interface VerificationResult {
 export class MerkleVerifier {
   constructor(private readonly pool: Pool) {}
 
-  async verifyEvent(eventId: string): Promise<VerificationResult> {
+  async verifyEvent(
+    tenantId: string,
+    eventId: string
+  ): Promise<VerificationResult> {
     const result = await this.pool.query<{
       event_id: string;
       anchor_batch_id: string;
@@ -28,11 +31,15 @@ export class MerkleVerifier {
         ee.anchor_batch_id,
         ab.merkle_root
       FROM evidence_events ee
+      JOIN resources r
+        ON r.id = ee.resource_id
       JOIN anchor_batches ab
         ON ab.id = ee.anchor_batch_id
       WHERE ee.event_id = $1
+        AND r.tenant_id = $2
+        AND ab.tenant_id = $2
       `,
-      [eventId]
+      [eventId, tenantId]
     );
 
     const row = result.rows[0];
@@ -66,14 +73,18 @@ export class MerkleVerifier {
         ON r.id = ee.resource_id
       JOIN resource_versions rv
         ON rv.id = ee.version_id
+      JOIN anchor_batches ab
+        ON ab.id = ee.anchor_batch_id
       WHERE ee.anchor_batch_id = $1
+        AND r.tenant_id = $2
+        AND ab.tenant_id = $2
       ORDER BY
         r.resource_type ASC,
         r.external_id ASC,
         rv.version ASC,
         ee.event_id ASC
       `,
-      [row.anchor_batch_id]
+      [row.anchor_batch_id, tenantId]
     );
 
     const leaves = events.rows.map((event) => event.state_hash);

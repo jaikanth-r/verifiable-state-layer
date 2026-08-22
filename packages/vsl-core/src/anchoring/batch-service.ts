@@ -36,6 +36,7 @@ export class MerkleBatchService {
   ) {}
 
   async createPendingBatch(
+    tenantId: string,
     batchSize = 100
   ): Promise<AnchorBatch | null> {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
@@ -47,7 +48,7 @@ export class MerkleBatchService {
     try {
       await client.query("BEGIN");
 
-      const events = await this.claimEvents(client, batchSize);
+      const events = await this.claimEvents(client, tenantId, batchSize);
 
       if (events.length === 0) {
         await client.query("ROLLBACK");
@@ -65,13 +66,14 @@ export class MerkleBatchService {
         `
         INSERT INTO anchor_batches (
           id,
+          tenant_id,
           merkle_root,
           protocol_version,
           status,
           blockchain_reference,
           event_count
         )
-        VALUES ($1, $2, $3, 'pending', NULL, $4)
+        VALUES ($1, $2, $3, $4, 'pending', NULL, $5)
         RETURNING
           id,
           merkle_root,
@@ -84,6 +86,7 @@ export class MerkleBatchService {
         `,
         [
           batchId,
+          tenantId,
           batch.merkleRoot,
           batch.protocolVersion,
           batch.eventIds.length
@@ -110,12 +113,15 @@ export class MerkleBatchService {
     }
   }
 
-  async anchorBatch(batchId: string): Promise<AnchorBatch> {
+  async anchorBatch(
+    tenantId: string,
+    batchId: string
+  ): Promise<AnchorBatch> {
     if (!this.anchorAdapter) {
       throw new Error("AnchorAdapter is not configured");
     }
 
-    const batch = await this.getBatch(batchId);
+    const batch = await this.getBatch(tenantId, batchId);
 
     if (!batch) {
       throw new Error(`Anchor batch not found: ${batchId}`);
@@ -131,7 +137,7 @@ export class MerkleBatchService {
       );
     }
 
-    await this.setStatus(batchId, "submitted");
+    await this.setStatus(tenantId, batchId, "submitted");
 
     try {
       const anchor = await this.anchorAdapter.anchor({
@@ -153,6 +159,7 @@ export class MerkleBatchService {
             blockchain_reference = $2,
             anchored_at = $3
           WHERE id = $1
+            AND tenant_id = $4
           RETURNING
             id,
             merkle_root,
@@ -166,7 +173,8 @@ export class MerkleBatchService {
           [
             batchId,
             anchor.transactionId ?? anchor.anchoredAt,
-            anchor.anchoredAt
+            anchor.anchoredAt,
+              tenantId
           ]
         );
 
@@ -180,12 +188,15 @@ export class MerkleBatchService {
         client.release();
       }
     } catch (error) {
-      await this.setStatus(batchId, "failed");
+      await this.setStatus(tenantId, batchId, "failed");
       throw error;
     }
   }
 
-  async getBatch(batchId: string): Promise<AnchorBatch | null> {
+  async getBatch(
+    tenantId: string,
+    batchId: string
+  ): Promise<AnchorBatch | null> {
     const result = await this.pool.query<AnchorBatchRow>(
       `
       SELECT
@@ -199,8 +210,9 @@ export class MerkleBatchService {
         anchored_at
       FROM anchor_batches
       WHERE id = $1
+        AND tenant_id = $2
       `,
-      [batchId]
+      [batchId, tenantId]
     );
 
     return result.rows[0]
@@ -209,21 +221,24 @@ export class MerkleBatchService {
   }
 
   private async setStatus(
+    tenantId: string,
     batchId: string,
     status: AnchorBatch["status"]
   ): Promise<void> {
     await this.pool.query(
       `
       UPDATE anchor_batches
-      SET status = $2
-      WHERE id = $1
+      SET status = $3
+      WHERE id = $2
+        AND tenant_id = $1
       `,
-      [batchId, status]
+      [tenantId, batchId, status]
     );
   }
 
   private async claimEvents(
     client: PoolClient,
+    tenantId: string,
     batchSize: number
   ): Promise<EventRow[]> {
     const result = await client.query<EventRow>(
@@ -245,6 +260,7 @@ export class MerkleBatchService {
       JOIN resources r
         ON r.id = rv.resource_id
       WHERE ee.anchor_batch_id IS NULL
+        AND r.tenant_id = $2
       ORDER BY
         r.resource_type ASC,
         r.external_id ASC,
@@ -253,7 +269,7 @@ export class MerkleBatchService {
       LIMIT $1
       FOR UPDATE OF ee SKIP LOCKED
       `,
-      [batchSize]
+      [batchSize, tenantId]
     );
 
     return result.rows;

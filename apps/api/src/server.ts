@@ -5,11 +5,14 @@ import { evidenceRoutes } from "./routes/evidence.js";
 import { historyRoutes } from "./routes/history.js";
 import { batchRoutes } from "./routes/batches.js";
 import { verificationRoutes } from "./routes/verification.js";
+import { registerRequestContext } from "./services/request-context.js";
 
 export function buildServer() {
   const app = Fastify({
     logger: true
   });
+
+  registerRequestContext(app);
 
   app.register(cors, {
     origin: true

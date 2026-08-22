@@ -11,6 +11,24 @@ import { createEvidenceEvent } from "../../evidence.js";
 import { MerkleBatchService } from "../batch-service.js";
 import { FabricAnchorAdapter } from "../../blockchain/fabric-anchor-adapter.js";
 
+async function getTestTenantId(): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    `
+    SELECT id
+    FROM tenants
+    WHERE slug = 'development'
+    `
+  );
+
+  const tenantId = result.rows[0]?.id;
+
+  if (!tenantId) {
+    throw new Error("Development tenant not found");
+  }
+
+  return tenantId;
+}
+
 const pool = new Pool({
   connectionString:
     process.env.TEST_DATABASE_URL ??
@@ -79,18 +97,37 @@ async function insertEvidence(
   try {
     await client.query("BEGIN");
 
+    const tenant = await client.query<{ id: string }>(
+      `
+      SELECT id
+      FROM tenants
+      WHERE slug = 'development'
+      `
+    );
+
+    const tenantId = tenant.rows[0]?.id;
+
+    if (!tenantId) {
+      throw new Error("Development tenant not found");
+    }
+
     const resource = await client.query<{ id: string }>(
       `
       INSERT INTO resources (
+        tenant_id,
         resource_type,
         external_id
       )
-      VALUES ($1, $2)
-      ON CONFLICT (resource_type, external_id)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (tenant_id, resource_type, external_id)
       DO UPDATE SET external_id = EXCLUDED.external_id
       RETURNING id
       `,
-      [event.resourceType, event.resourceId]
+      [
+        tenantId,
+        event.resourceType,
+        event.resourceId
+      ]
     );
 
     const resourceIdDb = resource.rows[0].id;
@@ -176,14 +213,16 @@ describe("VSL end-to-end anchoring", () => {
     const adapter = await fabricAdapterPromise;
     const service = new MerkleBatchService(pool, adapter);
 
-    const batch = await service.createPendingBatch(10);
+    const tenantId = await getTestTenantId();
+
+    const batch = await service.createPendingBatch(tenantId, 10);
 
     expect(batch).not.toBeNull();
     expect(batch?.status).toBe("pending");
     expect(batch?.eventCount).toBe(2);
     expect(batch?.merkleRoot).toHaveLength(64);
 
-    const anchored = await service.anchorBatch(batch!.id);
+    const anchored = await service.anchorBatch(tenantId, batch!.id);
 
     expect(anchored.status).toBe("anchored");
     expect(anchored.blockchainReference).toBeTruthy();
@@ -198,7 +237,7 @@ describe("VSL end-to-end anchoring", () => {
       batch!.protocolVersion
     );
 
-    const stored = await service.getBatch(batch!.id);
+    const stored = await service.getBatch(tenantId, batch!.id);
 
     expect(stored?.status).toBe("anchored");
     expect(stored?.merkleRoot).toBe(batch!.merkleRoot);

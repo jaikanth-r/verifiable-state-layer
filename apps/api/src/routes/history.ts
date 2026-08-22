@@ -9,12 +9,28 @@ export async function historyRoutes(app: FastifyInstance) {
         resourceId: string;
       };
 
-      const history = await getResourceHistory(resourceId);
+      try {
+        const history = await getResourceHistory(
+          request.auth,
+          resourceId
+        );
 
-      return reply.send({
-        resourceId,
-        versions: history
-      });
+        return reply.send({
+          resourceId,
+          versions: history
+        });
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "Resource not found"
+        ) {
+          return reply.code(404).send({
+            error: "RESOURCE_NOT_FOUND"
+          });
+        }
+
+        throw error;
+      }
     }
   );
 }

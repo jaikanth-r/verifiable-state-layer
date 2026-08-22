@@ -12,8 +12,22 @@ const pool = new Pool({
 
 const batchService = new MerkleBatchService(pool);
 const verifier = new MerkleVerifier(pool);
+let TEST_TENANT_ID: string;
 
 beforeEach(async () => {
+  const tenant = await pool.query<{ id: string }>(
+    `
+    SELECT id
+    FROM tenants
+    WHERE slug = 'development'
+    `
+  );
+
+  TEST_TENANT_ID = tenant.rows[0]?.id ?? "";
+  if (!TEST_TENANT_ID) {
+    throw new Error("Development tenant not found");
+  }
+
   await pool.query(`
     TRUNCATE
       evidence_events,
@@ -53,15 +67,37 @@ async function seedEvent(
   try {
     await client.query("BEGIN");
 
+    const tenant = await client.query<{ id: string }>(
+      `
+      SELECT id
+      FROM tenants
+      WHERE slug = 'development'
+      `
+    );
+
+    const tenantId = tenant.rows[0]?.id;
+
+    if (!tenantId) {
+      throw new Error("Development tenant not found");
+    }
+
     const resource = await client.query<{ id: string }>(
       `
-      INSERT INTO resources (resource_type, external_id)
-      VALUES ($1, $2)
-      ON CONFLICT (resource_type, external_id)
+      INSERT INTO resources (
+        tenant_id,
+        resource_type,
+        external_id
+      )
+      VALUES ($1, $2, $3)
+      ON CONFLICT (tenant_id, resource_type, external_id)
       DO UPDATE SET external_id = EXCLUDED.external_id
       RETURNING id
       `,
-      [event.resourceType, event.resourceId]
+      [
+        tenantId,
+        event.resourceType,
+        event.resourceId
+      ]
     );
 
     const resourceId = resource.rows[0].id;
@@ -140,11 +176,11 @@ describe("MerkleVerifier", () => {
       v1.stateHash
     );
 
-    const batch = await batchService.createPendingBatch();
+    const batch = await batchService.createPendingBatch(TEST_TENANT_ID);
 
     expect(batch).not.toBeNull();
 
-    const result = await verifier.verifyEvent(v2.eventId);
+    const result = await verifier.verifyEvent(TEST_TENANT_ID, v2.eventId);
 
     expect(result.valid).toBe(true);
     expect(result.eventId).toBe(v2.eventId);
@@ -155,6 +191,7 @@ describe("MerkleVerifier", () => {
 
   it("rejects an unknown event", async () => {
     const result = await verifier.verifyEvent(
+      TEST_TENANT_ID,
       "00000000-0000-4000-8000-000000009999"
     );
 
@@ -169,7 +206,7 @@ describe("MerkleVerifier", () => {
       null
     );
 
-    await batchService.createPendingBatch();
+    await batchService.createPendingBatch(TEST_TENANT_ID);
 
     await pool.query(
       `
@@ -183,7 +220,7 @@ describe("MerkleVerifier", () => {
       [v1.eventId]
     );
 
-    const result = await verifier.verifyEvent(v1.eventId);
+    const result = await verifier.verifyEvent(TEST_TENANT_ID, v1.eventId);
 
     expect(result.valid).toBe(false);
   });

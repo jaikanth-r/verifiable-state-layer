@@ -13,7 +13,23 @@ const pool = new Pool({
 
 const repository = new PostgresEvidenceRepository(pool);
 
+let TEST_TENANT_ID: string;
+
 beforeEach(async () => {
+  const tenant = await pool.query<{ id: string }>(
+    `
+    SELECT id
+    FROM tenants
+    WHERE slug = 'development'
+    `
+  );
+
+  TEST_TENANT_ID = tenant.rows[0]?.id ?? "";
+
+  if (!TEST_TENANT_ID) {
+    throw new Error("Development tenant not found");
+  }
+
   await pool.query(`
     TRUNCATE
       evidence_events,
@@ -66,10 +82,10 @@ describe("PostgresEvidenceRepository", () => {
     const v1 = createV1();
     const v2 = createV2(v1.stateHash);
 
-    await repository.save(v1);
-    await repository.save(v2);
+    await repository.save(TEST_TENANT_ID, v1);
+    await repository.save(TEST_TENANT_ID, v2);
 
-    const history = await repository.getHistory("deal", "deal-001");
+    const history = await repository.getHistory(TEST_TENANT_ID, "deal", "deal-001");
 
     expect(history).toHaveLength(2);
     expect(history[0].version).toBe(1);
@@ -80,9 +96,10 @@ describe("PostgresEvidenceRepository", () => {
   it("retrieves a specific version", async () => {
     const v1 = createV1();
 
-    await repository.save(v1);
+    await repository.save(TEST_TENANT_ID, v1);
 
     const result = await repository.getVersion(
+      TEST_TENANT_ID,
       "deal",
       "deal-001",
       1
@@ -112,9 +129,9 @@ describe("PostgresEvidenceRepository", () => {
       previousStateHash: v1.stateHash
     });
 
-    await repository.save(v1);
+    await repository.save(TEST_TENANT_ID, v1);
 
-    await expect(repository.save(v3)).rejects.toThrow(
+    await expect(repository.save(TEST_TENANT_ID, v3)).rejects.toThrow(
       "Invalid version sequence"
     );
   });
@@ -124,9 +141,9 @@ describe("PostgresEvidenceRepository", () => {
 
     const v2 = createV2("wrong-hash");
 
-    await repository.save(v1);
+    await repository.save(TEST_TENANT_ID, v1);
 
-    await expect(repository.save(v2)).rejects.toThrow(
+    await expect(repository.save(TEST_TENANT_ID, v2)).rejects.toThrow(
       "Previous state hash"
     );
   });

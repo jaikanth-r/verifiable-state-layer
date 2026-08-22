@@ -3,6 +3,7 @@ import { createEvidenceEvent } from "../evidence.js";
 import { InMemoryEvidenceRepository } from "./in-memory-repository.js";
 
 describe("InMemoryEvidenceRepository", () => {
+  const tenant = "test-tenant";
   it("stores a valid version chain", () => {
     const repository = new InMemoryEvidenceRepository();
 
@@ -30,11 +31,11 @@ describe("InMemoryEvidenceRepository", () => {
       previousStateHash: v1.stateHash
     });
 
-    repository.save(v1);
-    repository.save(v2);
+    repository.save(tenant, v1);
+    repository.save(tenant, v2);
 
-    expect(repository.getHistory("deal", "deal-001")).toHaveLength(2);
-    expect(repository.getVersion("deal", "deal-001", 2)?.state).toEqual({
+    expect(repository.getHistory(tenant, "deal", "deal-001")).toHaveLength(2);
+    expect(repository.getVersion(tenant, "deal", "deal-001", 2)?.state).toEqual({
       price: 42000
     });
   });
@@ -66,9 +67,9 @@ describe("InMemoryEvidenceRepository", () => {
       previousStateHash: v1.stateHash
     });
 
-    repository.save(v1);
+    repository.save(tenant, v1);
 
-    expect(() => repository.save(v3)).toThrow(
+    expect(() => repository.save(tenant, v3)).toThrow(
       "Invalid version sequence"
     );
   });
@@ -100,9 +101,9 @@ describe("InMemoryEvidenceRepository", () => {
       previousStateHash: "wrong-hash"
     });
 
-    repository.save(v1);
+    repository.save(tenant, v1);
 
-    expect(() => repository.save(v2)).toThrow(
+    expect(() => repository.save(tenant, v2)).toThrow(
       "Previous state hash"
     );
   });
@@ -122,9 +123,9 @@ describe("InMemoryEvidenceRepository", () => {
       previousStateHash: null
     });
 
-    repository.save(v1);
+    repository.save(tenant, v1);
 
-    expect(() => repository.save(v1)).toThrow(
+    expect(() => repository.save(tenant, v1)).toThrow(
       "already exists"
     );
   });

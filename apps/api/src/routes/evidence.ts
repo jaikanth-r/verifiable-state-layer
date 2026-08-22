@@ -31,6 +31,7 @@ export async function evidenceRoutes(app: FastifyInstance) {
 
       try {
         const event = await createEvent(
+          request.auth,
           (request.params as { resourceId: string }).resourceId,
           parsed.data
         );

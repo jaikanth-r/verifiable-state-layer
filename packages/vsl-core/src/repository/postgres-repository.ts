@@ -19,7 +19,10 @@ interface StoredVersion {
 export class PostgresEvidenceRepository implements EvidenceRepository {
   constructor(private readonly pool: Pool) {}
 
-  async save<T>(event: EvidenceEvent<T>): Promise<void> {
+  async save<T>(
+    tenantId: string,
+    event: EvidenceEvent<T>
+  ): Promise<void> {
     const client = await this.pool.connect();
 
     try {
@@ -27,6 +30,7 @@ export class PostgresEvidenceRepository implements EvidenceRepository {
 
       const resource = await this.getOrCreateResource(
         client,
+        tenantId,
         event.resourceType,
         event.resourceId
       );
@@ -143,6 +147,7 @@ export class PostgresEvidenceRepository implements EvidenceRepository {
   }
 
   async getVersion<T>(
+    tenantId: string,
     resourceType: string,
     resourceId: string,
     version: number
@@ -176,12 +181,13 @@ export class PostgresEvidenceRepository implements EvidenceRepository {
         ON rv.id = ee.version_id
       JOIN resources r
         ON r.id = rv.resource_id
-      WHERE r.external_id = $1
-        AND r.resource_type = $2
-        AND rv.version = $3
+      WHERE r.tenant_id = $1
+        AND r.external_id = $2
+        AND r.resource_type = $3
+        AND rv.version = $4
       LIMIT 1
       `,
-      [resourceId, resourceType, version]
+      [tenantId, resourceId, resourceType, version]
     );
 
     const row = result.rows[0];
@@ -194,6 +200,7 @@ export class PostgresEvidenceRepository implements EvidenceRepository {
   }
 
   async getHistory<T>(
+    tenantId: string,
     resourceType: string,
     resourceId: string
   ): Promise<EvidenceEvent<T>[]> {
@@ -226,11 +233,12 @@ export class PostgresEvidenceRepository implements EvidenceRepository {
         ON rv.id = ee.version_id
       JOIN resources r
         ON r.id = rv.resource_id
-      WHERE r.external_id = $1
-        AND r.resource_type = $2
+      WHERE r.tenant_id = $1
+        AND r.external_id = $2
+        AND r.resource_type = $3
       ORDER BY rv.version ASC
       `,
-      [resourceId, resourceType]
+      [tenantId, resourceId, resourceType]
     );
 
     return result.rows.map((row) => this.toEvidenceEvent(row));
@@ -238,18 +246,23 @@ export class PostgresEvidenceRepository implements EvidenceRepository {
 
   private async getOrCreateResource(
     client: PoolClient,
+    tenantId: string,
     resourceType: string,
     externalId: string
   ): Promise<StoredResource> {
     const result = await client.query<StoredResource>(
       `
-      INSERT INTO resources (resource_type, external_id)
-      VALUES ($1, $2)
-      ON CONFLICT (resource_type, external_id)
+      INSERT INTO resources (
+        tenant_id,
+        resource_type,
+        external_id
+      )
+      VALUES ($1, $2, $3)
+      ON CONFLICT (tenant_id, resource_type, external_id)
       DO UPDATE SET resource_type = EXCLUDED.resource_type
       RETURNING id
       `,
-      [resourceType, externalId]
+      [tenantId, resourceType, externalId]
     );
 
     return result.rows[0];

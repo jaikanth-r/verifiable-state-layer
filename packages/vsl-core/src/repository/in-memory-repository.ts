@@ -1,11 +1,26 @@
 import type { EvidenceEvent } from "@vsl/shared";
+
 import type { EvidenceRepository } from "./evidence-repository.js";
 
 export class InMemoryEvidenceRepository implements EvidenceRepository {
   private readonly events = new Map<string, EvidenceEvent[]>();
 
-  save<T>(event: EvidenceEvent<T>): void {
-    const history = this.events.get(event.resourceId) ?? [];
+  private key(
+    tenantId: string,
+    resourceType: string,
+    resourceId: string
+  ): string {
+    return `${tenantId}:${resourceType}:${resourceId}`;
+  }
+
+  save<T>(tenantId: string, event: EvidenceEvent<T>): void {
+    const key = this.key(
+      tenantId,
+      event.resourceType,
+      event.resourceId
+    );
+
+    const history = this.events.get(key) ?? [];
 
     if (history.some((existing) => existing.version === event.version)) {
       throw new Error(
@@ -40,16 +55,17 @@ export class InMemoryEvidenceRepository implements EvidenceRepository {
     }
 
     history.push(event);
-    this.events.set(event.resourceId, history);
+    this.events.set(key, history);
   }
 
   getVersion<T>(
+    tenantId: string,
     resourceType: string,
     resourceId: string,
     version: number
   ): EvidenceEvent<T> | undefined {
     return this.events
-      .get(resourceId)
+      .get(this.key(tenantId, resourceType, resourceId))
       ?.find(
         (event) =>
           event.resourceType === resourceType &&
@@ -58,10 +74,16 @@ export class InMemoryEvidenceRepository implements EvidenceRepository {
   }
 
   getHistory<T>(
+    tenantId: string,
     resourceType: string,
     resourceId: string
   ): EvidenceEvent<T>[] {
-    return [...(this.events.get(resourceId) ?? [])]
-      .filter((event) => event.resourceType === resourceType) as EvidenceEvent<T>[];
+    return [
+      ...(this.events.get(
+        this.key(tenantId, resourceType, resourceId)
+      ) ?? [])
+    ].filter(
+      (event) => event.resourceType === resourceType
+    ) as EvidenceEvent<T>[];
   }
 }

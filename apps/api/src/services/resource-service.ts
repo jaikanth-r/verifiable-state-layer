@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { pool } from "../config/database.js";
+import type { AuthContext } from "./auth-context.js";
 
 export interface CreateResourceInput {
   resourceType: string;
@@ -14,6 +15,7 @@ export interface ResourceRecord {
 }
 
 export async function createResource(
+  auth: AuthContext,
   input: CreateResourceInput
 ): Promise<ResourceRecord> {
   const externalId = input.externalId ?? randomUUID();
@@ -27,17 +29,18 @@ export async function createResource(
     }>(
       `
       INSERT INTO resources (
+        tenant_id,
         resource_type,
         external_id
       )
-      VALUES ($1, $2)
+      VALUES ($1, $2, $3)
       RETURNING
         id,
         resource_type,
         external_id,
         created_at
       `,
-      [input.resourceType, externalId]
+      [auth.tenantId, input.resourceType, externalId]
     );
 
     const row = result.rows[0];
@@ -56,7 +59,7 @@ export async function createResource(
       error.code === "23505"
     ) {
       throw new Error(
-        `Resource with external ID '${externalId}' already exists`
+        `Resource with external ID '${externalId}' already exists in this tenant`
       );
     }
 

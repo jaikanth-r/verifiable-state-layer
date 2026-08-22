@@ -15,8 +15,22 @@ const pool = new Pool({
 });
 
 const service = new MerkleBatchService(pool);
+let TEST_TENANT_ID: string;
 
 beforeEach(async () => {
+  const tenant = await pool.query<{ id: string }>(
+    `
+    SELECT id
+    FROM tenants
+    WHERE slug = 'development'
+    `
+  );
+
+  TEST_TENANT_ID = tenant.rows[0]?.id ?? "";
+  if (!TEST_TENANT_ID) {
+    throw new Error("Development tenant not found");
+  }
+
   await pool.query(`
     TRUNCATE
       evidence_events,
@@ -62,15 +76,37 @@ async function insertEvent(
   try {
     await client.query("BEGIN");
 
+    const tenant = await client.query<{ id: string }>(
+      `
+      SELECT id
+      FROM tenants
+      WHERE slug = 'development'
+      `
+    );
+
+    const tenantId = tenant.rows[0]?.id;
+
+    if (!tenantId) {
+      throw new Error("Development tenant not found");
+    }
+
     const resource = await client.query<{ id: string }>(
       `
-      INSERT INTO resources (resource_type, external_id)
-      VALUES ($1, $2)
-      ON CONFLICT (resource_type, external_id)
+      INSERT INTO resources (
+        tenant_id,
+        resource_type,
+        external_id
+      )
+      VALUES ($1, $2, $3)
+      ON CONFLICT (tenant_id, resource_type, external_id)
       DO UPDATE SET external_id = EXCLUDED.external_id
       RETURNING id
       `,
-      [event.resourceType, event.resourceId]
+      [
+        tenantId,
+        event.resourceType,
+        event.resourceId
+      ]
     );
 
     const resourceId = resource.rows[0].id;
@@ -177,7 +213,7 @@ describe("MerkleBatchService", () => {
       v1.stateHash
     );
 
-    const batch = await service.createPendingBatch();
+    const batch = await service.createPendingBatch(TEST_TENANT_ID);
 
     expect(batch).not.toBeNull();
     expect(batch?.status).toBe("pending");
@@ -197,7 +233,7 @@ describe("MerkleBatchService", () => {
   });
 
   it("returns null when there are no unbatched events", async () => {
-    const batch = await service.createPendingBatch();
+    const batch = await service.createPendingBatch(TEST_TENANT_ID);
 
     expect(batch).toBeNull();
   });
@@ -215,7 +251,7 @@ describe("MerkleBatchService", () => {
       previousHash = event.stateHash;
     }
 
-    const batch = await service.createPendingBatch(2);
+    const batch = await service.createPendingBatch(TEST_TENANT_ID, 2);
 
     expect(batch?.eventCount).toBe(2);
 
@@ -240,11 +276,11 @@ describe("MerkleBatchService", () => {
     const adapter = new FakeAnchorAdapter();
     const serviceWithAnchor = new MerkleBatchService(pool, adapter);
 
-    const batch = await serviceWithAnchor.createPendingBatch();
+    const batch = await serviceWithAnchor.createPendingBatch(TEST_TENANT_ID);
 
     expect(batch).not.toBeNull();
 
-    const anchored = await serviceWithAnchor.anchorBatch(batch!.id);
+    const anchored = await serviceWithAnchor.anchorBatch(TEST_TENANT_ID, batch!.id);
 
     expect(anchored.status).toBe("anchored");
     expect(anchored.blockchainReference).toBe(`tx-${batch!.id}`);
@@ -261,15 +297,15 @@ describe("MerkleBatchService", () => {
     const adapter = new FakeAnchorAdapter(true);
     const serviceWithAnchor = new MerkleBatchService(pool, adapter);
 
-    const batch = await serviceWithAnchor.createPendingBatch();
+    const batch = await serviceWithAnchor.createPendingBatch(TEST_TENANT_ID);
 
     expect(batch).not.toBeNull();
 
     await expect(
-      serviceWithAnchor.anchorBatch(batch!.id)
+      serviceWithAnchor.anchorBatch(TEST_TENANT_ID, batch!.id)
     ).rejects.toThrow("Fabric unavailable");
 
-    const failed = await serviceWithAnchor.getBatch(batch!.id);
+    const failed = await serviceWithAnchor.getBatch(TEST_TENANT_ID, batch!.id);
 
     expect(failed?.status).toBe("failed");
     expect(failed?.blockchainReference).toBeNull();
@@ -283,8 +319,8 @@ describe("MerkleBatchService", () => {
       null
     );
 
-    const first = await service.createPendingBatch();
-    const second = await service.createPendingBatch();
+    const first = await service.createPendingBatch(TEST_TENANT_ID);
+    const second = await service.createPendingBatch(TEST_TENANT_ID);
 
     expect(first).not.toBeNull();
     expect(second).toBeNull();

@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { pool } from "../config/database.js";
+import type { AuthContext } from "./auth-context.js";
 import {
   createEvidenceEvent,
   type CreateEvidenceEventInput
 } from "@vsl/vsl-core";
 
 export async function createEvent(
+  auth: AuthContext,
   resourceId: string,
   input: Omit<
     CreateEvidenceEventInput<Record<string, unknown>>,
@@ -26,9 +28,10 @@ export async function createEvent(
       SELECT id, resource_type, external_id
       FROM resources
       WHERE id = $1
+        AND tenant_id = $2
       FOR UPDATE
       `,
-      [resourceId]
+      [resourceId, auth.tenantId]
     );
 
     const resourceRow = resource.rows[0];
