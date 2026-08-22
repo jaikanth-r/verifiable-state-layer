@@ -43,6 +43,8 @@ describe("FabricAnchorAdapter", () => {
     expect(anchored.batchId).toBe(batchId);
     expect(anchored.merkleRoot).toBe(merkleRoot);
     expect(anchored.protocolVersion).toBe("v1");
+    expect(anchored.transactionId).toBeTruthy();
+    expect(anchored.transactionId).toMatch(/^[a-f0-9]{64}$/);
 
     const retrieved = await adapter.getAnchor(batchId);
 

@@ -9,5 +9,12 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@types/pg": "^8.23.1",
+    "fastify": "^5.12.1",
+    "pg": "^8.23.0",
+    "zod": "^4.4.3"
   }
 }

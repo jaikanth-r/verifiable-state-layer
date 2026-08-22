@@ -72,17 +72,36 @@ export class FabricAnchorAdapter implements AnchorAdapter {
   }): Promise<BlockchainAnchor> {
     const anchoredAt = new Date().toISOString();
 
-    const result = await this.contract.submitTransaction(
+    const submitted = await this.contract.submitAsync(
       "AnchorBatch",
-      batch.batchId,
-      batch.merkleRoot,
-      batch.protocolVersion,
-      anchoredAt
+      {
+        arguments: [
+          batch.batchId,
+          batch.merkleRoot,
+          batch.protocolVersion,
+          anchoredAt
+        ]
+      }
     );
 
-    return JSON.parse(
-      new TextDecoder().decode(result)
-    ) as BlockchainAnchor;
+    const transactionId = submitted.getTransactionId();
+
+    const status = await submitted.getStatus();
+
+    if (!status.successful) {
+      throw new Error(
+        `Fabric transaction ${status.transactionId} failed with status ${status.code}`
+      );
+    }
+
+    const result = submitted.getResult();
+
+    return {
+      ...(JSON.parse(
+        new TextDecoder().decode(result)
+      ) as BlockchainAnchor),
+      transactionId
+    };
   }
 
   async getAnchor(
