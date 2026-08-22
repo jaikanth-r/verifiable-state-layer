@@ -1,8 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AuthContext } from "./auth-context.js";
-import {
-  DevelopmentAuthenticator
-} from "./development-authenticator.js";
+import { createAuthenticator } from "./authenticator-factory.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -10,12 +8,16 @@ declare module "fastify" {
   }
 }
 
-const authenticator = new DevelopmentAuthenticator();
+const authenticator = createAuthenticator();
 
 export function registerRequestContext(
   app: FastifyInstance
 ) {
   app.addHook("onRequest", async (request, reply) => {
+    if (request.url === "/health" || request.url === "/ready") {
+      return;
+    }
+
     const auth = await authenticator.authenticate(
       request.headers.authorization
     );
