@@ -143,6 +143,27 @@ async function request<T>(
   return (await response.json()) as T;
 }
 
+export interface OverviewSummary {
+  resources: number;
+  evidenceEvents: number;
+  anchoredBatches: number;
+  pendingBatches: number;
+  failedBatches: number;
+  recentResources: Resource[];
+  recentAudit: Array<{
+    id: string;
+    occurredAt: string;
+    userId: string | null;
+    action: string;
+    outcome: "success" | "failure" | "denied";
+    resourceId: string | null;
+  }>;
+}
+
+export function getOverview() {
+  return request<OverviewSummary>("/v1/overview");
+}
+
 export function listResources() {
   return request<{
     items: Resource[];

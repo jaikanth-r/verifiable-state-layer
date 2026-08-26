@@ -10,6 +10,7 @@ import { resourceParticipantRoutes } from "./routes/resource-participants.js";
 import { batchRoutes } from "./routes/batches.js";
 import { verificationRoutes } from "./routes/verification.js";
 import { auditRoutes } from "./routes/audit.js";
+import { overviewRoutes } from "./routes/overview.js";
 import { registerRequestContext } from "./services/request-context.js";
 import { PostgresAuditWriter } from "./services/postgres-audit-writer.js";
 
@@ -103,6 +104,7 @@ export function buildServer(options: ServerOptions = {}) {
     await scope.register(batchRoutes);
     await scope.register(verificationRoutes);
     await scope.register(auditRoutes);
+    await scope.register(overviewRoutes);
   });
 
   app.setErrorHandler(async (error, request, reply) => {

@@ -2120,3 +2120,54 @@ h2 {
     width: 100%;
   }
 }
+
+.dashboard-list {
+  display: grid;
+}
+
+.dashboard-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 13px 0;
+  border-top: 1px solid #e5e7eb;
+}
+
+.dashboard-list-row:first-child {
+  border-top: 0;
+}
+
+.dashboard-list-row > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dashboard-list-row span,
+.dashboard-list-row small {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.dashboard-list-row strong {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-list-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .dashboard-list-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-list-status {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
