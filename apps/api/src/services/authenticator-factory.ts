@@ -1,5 +1,7 @@
 import type { Authenticator } from "./authentication.js";
+
 import { DevelopmentAuthenticator } from "./development-authenticator.js";
+
 import { OidcAuthenticator } from "./oidc-authenticator.js";
 
 export function createAuthenticator(): Authenticator {
@@ -18,6 +20,12 @@ export function createAuthenticator(): Authenticator {
 
   switch (mode) {
     case "development":
+      if (nodeEnv === "production") {
+        throw new Error(
+          "AUTH_MODE=development is not allowed when NODE_ENV=production"
+        );
+      }
+
       return new DevelopmentAuthenticator();
 
     case "oidc":

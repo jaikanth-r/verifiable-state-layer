@@ -30,6 +30,15 @@ describe("createAuthenticator", () => {
     );
   });
 
+  it("rejects development authentication in production", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AUTH_MODE = "development";
+
+    expect(() => createAuthenticator()).toThrow(
+      "AUTH_MODE=development is not allowed when NODE_ENV=production"
+    );
+  });
+
   it("uses development authentication when development mode has no AUTH_MODE", () => {
     process.env.NODE_ENV = "development";
     delete process.env.AUTH_MODE;
