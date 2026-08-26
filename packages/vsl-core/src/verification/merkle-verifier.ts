@@ -1,12 +1,21 @@
 import type { Pool } from "pg";
+import { sha256 } from "@vsl/crypto";
 import {
   createMerkleProof,
   verifyMerkleProof,
   type MerkleProof
 } from "@vsl/merkle";
 
+export type VerificationReason =
+  | "VALID"
+  | "EVENT_NOT_FOUND"
+  | "NOT_ANCHORED"
+  | "STATE_TAMPERED"
+  | "ANCHOR_MISMATCH";
+
 export interface VerificationResult {
   valid: boolean;
+  reason: VerificationReason;
   eventId: string;
   batchId: string;
   merkleRoot: string;
@@ -33,20 +42,31 @@ export class MerkleVerifier {
       FROM evidence_events ee
       JOIN resources r
         ON r.id = ee.resource_id
-      JOIN anchor_batches ab
+      LEFT JOIN anchor_batches ab
         ON ab.id = ee.anchor_batch_id
       WHERE ee.event_id = $1
         AND r.tenant_id = $2
-        AND ab.tenant_id = $2
       `,
       [eventId, tenantId]
     );
 
     const row = result.rows[0];
 
-    if (!row || !row.anchor_batch_id) {
+    if (!row) {
       return {
         valid: false,
+        reason: "EVENT_NOT_FOUND",
+        eventId,
+        batchId: "",
+        merkleRoot: "",
+        proof: null
+      };
+    }
+
+    if (!row.anchor_batch_id) {
+      return {
+        valid: false,
+        reason: "NOT_ANCHORED",
         eventId,
         batchId: "",
         merkleRoot: "",
@@ -59,7 +79,11 @@ export class MerkleVerifier {
       resource_type: string;
       resource_id: string;
       version: number;
+      state: unknown;
+      resource_version_state_hash: string;
+      resource_version_previous_state_hash: string | null;
       state_hash: string;
+      previous_state_hash: string | null;
     }>(
       `
       SELECT
@@ -67,7 +91,11 @@ export class MerkleVerifier {
         r.resource_type,
         r.external_id AS resource_id,
         rv.version,
-        ee.state_hash
+        rv.state,
+        rv.state_hash AS resource_version_state_hash,
+        rv.previous_state_hash AS resource_version_previous_state_hash,
+        ee.state_hash,
+        ee.previous_state_hash
       FROM evidence_events ee
       JOIN resources r
         ON r.id = ee.resource_id
@@ -87,6 +115,34 @@ export class MerkleVerifier {
       [row.anchor_batch_id, tenantId]
     );
 
+    const integrityChecks = events.rows.map((event) => {
+      const hashCopiesMatch =
+        event.resource_version_state_hash === event.state_hash &&
+        event.resource_version_previous_state_hash ===
+          event.previous_state_hash;
+
+      const recomputedStateHash = sha256({
+        resourceId: event.resource_id,
+        resourceType: event.resource_type,
+        version: event.version,
+        state: event.state,
+        previousStateHash: event.previous_state_hash
+      });
+
+      return {
+        eventId: event.event_id,
+        hashCopiesMatch,
+        storedStateHash: event.state_hash,
+        recomputedStateHash
+      };
+    });
+
+    const hasIntegrityMismatch = integrityChecks.some(
+      (check) =>
+        !check.hashCopiesMatch ||
+        check.storedStateHash !== check.recomputedStateHash
+    );
+
     const leaves = events.rows.map((event) => event.state_hash);
     const targetIndex = events.rows.findIndex(
       (event) => event.event_id === eventId
@@ -95,6 +151,7 @@ export class MerkleVerifier {
     if (targetIndex === -1) {
       return {
         valid: false,
+        reason: "EVENT_NOT_FOUND",
         eventId,
         batchId: row.anchor_batch_id,
         merkleRoot: row.merkle_root,
@@ -104,12 +161,21 @@ export class MerkleVerifier {
 
     const proof = createMerkleProof(leaves, targetIndex);
 
-    const valid =
+    const anchorMatches =
       proof.root === row.merkle_root &&
       verifyMerkleProof(proof);
 
+    let reason: VerificationReason = "VALID";
+
+    if (hasIntegrityMismatch) {
+      reason = "STATE_TAMPERED";
+    } else if (!anchorMatches) {
+      reason = "ANCHOR_MISMATCH";
+    }
+
     return {
-      valid,
+      valid: reason === "VALID",
+      reason,
       eventId,
       batchId: row.anchor_batch_id,
       merkleRoot: row.merkle_root,

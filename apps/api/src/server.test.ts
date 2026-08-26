@@ -23,6 +23,32 @@ describe("API security boundary", () => {
     await app.close();
   });
 
+  it("requires explicit CORS origins in production", () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalCorsOrigins = process.env.CORS_ORIGINS;
+
+    try {
+      process.env.NODE_ENV = "production";
+      delete process.env.CORS_ORIGINS;
+
+      expect(() => buildServer()).toThrow(
+        "CORS_ORIGINS is required when NODE_ENV=production"
+      );
+    } finally {
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+
+      if (originalCorsOrigins === undefined) {
+        delete process.env.CORS_ORIGINS;
+      } else {
+        process.env.CORS_ORIGINS = originalCorsOrigins;
+      }
+    }
+  });
+
   it("exposes public health and readiness", async () => {
     const health = await app.inject({
       method: "GET",
@@ -45,7 +71,6 @@ describe("API security boundary", () => {
       url: "/v1/resources",
       payload: {
         resourceType: "purchase",
-        externalId: "security-test-001"
       }
     });
 
@@ -90,6 +115,113 @@ describe("API security boundary", () => {
       await rateLimitedApp.close();
     }
   });
+  it("rejects malformed UUID path parameters", async () => {
+    const requests = [
+      {
+        method: "GET" as const,
+        url: "/v1/batches/not-a-uuid"
+      },
+      {
+        method: "GET" as const,
+        url: "/v1/resources/not-a-uuid/history"
+      },
+      {
+        method: "GET" as const,
+        url: "/v1/verify/not-a-uuid"
+      },
+      {
+        method: "GET" as const,
+        url: "/v1/resources/not-a-uuid/participants"
+      }
+    ];
+
+    for (const request of requests) {
+      const response = await app.inject({
+        ...request,
+        headers: {
+          authorization: "Bearer dev-member-token"
+        }
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        error: "INVALID_REQUEST"
+      });
+    }
+  });
+
+  it("generates tenant-scoped references from record type", async () => {
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/resources",
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        resourceType: "Shipment"
+      }
+    });
+
+    expect(first.statusCode).toBe(201);
+
+    const firstResource = first.json<{
+      resourceType: string;
+      externalId: string;
+    }>();
+
+    expect(firstResource.resourceType).toBe("Shipment");
+    expect(firstResource.externalId).toMatch(/^VSL-SHIPMENT-[0-9]{4}-[0-9]{6}$/);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/resources",
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        resourceType: "Shipment"
+      }
+    });
+
+    expect(second.statusCode).toBe(201);
+
+    const secondResource = second.json<{
+      externalId: string;
+    }>();
+
+    expect(secondResource.externalId).toMatch(/^VSL-SHIPMENT-[0-9]{4}-[0-9]{6}$/);
+    expect(secondResource.externalId).not.toBe(
+      firstResource.externalId
+    );
+
+    const custom = await app.inject({
+      method: "POST",
+      url: "/v1/resources",
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        resourceType: "Pharmaceutical Batch Release"
+      }
+    });
+
+    expect(custom.statusCode).toBe(201);
+
+    const customResource = custom.json<{
+      externalId: string;
+    }>();
+
+    expect(
+      customResource.externalId.startsWith(
+        "VSL-PHARMACEUTICAL-BATCH-RELEASE-"
+      )
+    ).toBe(true);
+
+    expect(customResource.externalId).toMatch(
+      /-[0-9]{4}-[0-9]{6}$/
+    );
+  });
+
   it("audits successful resource creation", async () => {
     const externalId = `audit-resource-${Date.now()}`;
 
@@ -288,6 +420,425 @@ describe("API security boundary", () => {
     });
   });
 
+  it("verifies an anchored event through the API", async () => {
+    const externalId = `verify-api-${Date.now()}`;
+
+    const resourceResponse = await app.inject({
+      method: "POST",
+      url: "/v1/resources",
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        resourceType: "purchase",
+        externalId
+      }
+    });
+
+    expect(resourceResponse.statusCode).toBe(201);
+
+    const resource = resourceResponse.json<{
+      id: string;
+    }>();
+
+    const evidenceResponse = await app.inject({
+      method: "POST",
+      url: `/v1/resources/${resource.id}/events`,
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        eventType: "create",
+        state: {
+          customer: "API Verification Test",
+          amount: 100000,
+          currency: "INR",
+          status: "open"
+        }
+      }
+    });
+
+    expect(evidenceResponse.statusCode).toBe(201);
+
+    const event = evidenceResponse.json<{
+      eventId: string;
+    }>();
+
+    const batchResponse = await app.inject({
+      method: "POST",
+      url: "/v1/batches",
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      },
+      payload: {
+        batchSize: 10
+      }
+    });
+
+    expect(batchResponse.statusCode).toBe(201);
+
+    const batch = batchResponse.json<{
+      id: string;
+    }>();
+
+    const anchorResponse = await app.inject({
+      method: "POST",
+      url: `/v1/batches/${batch.id}/anchor`,
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      }
+    });
+
+    expect(anchorResponse.statusCode).toBe(200);
+
+    const verifyResponse = await app.inject({
+      method: "GET",
+      url: `/v1/verify/${event.eventId}`,
+      headers: {
+        authorization: "Bearer dev-member-token"
+      }
+    });
+
+    expect(verifyResponse.statusCode).toBe(200);
+
+    const verification = verifyResponse.json<{
+      valid: boolean;
+      reason: string;
+      eventId: string;
+      batchId: string;
+      merkleRoot: string;
+    }>();
+
+    expect(verification.valid).toBe(true);
+    expect(verification.reason).toBe("VALID");
+    expect(verification.eventId).toBe(event.eventId);
+    expect(verification.batchId).toBe(batch.id);
+    expect(verification.merkleRoot).toBeTruthy();
+  });
+
+  it("detects state tampering through the API", async () => {
+    const externalId = `verify-tamper-${Date.now()}`;
+
+    const resourceResponse = await app.inject({
+      method: "POST",
+      url: "/v1/resources",
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        resourceType: "purchase",
+        externalId
+      }
+    });
+
+    expect(resourceResponse.statusCode).toBe(201);
+
+    const resource = resourceResponse.json<{
+      id: string;
+    }>();
+
+    const evidenceResponse = await app.inject({
+      method: "POST",
+      url: `/v1/resources/${resource.id}/events`,
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        eventType: "create",
+        state: {
+          customer: "API Tamper Test",
+          amount: 50000,
+          currency: "INR",
+          status: "open"
+        }
+      }
+    });
+
+    expect(evidenceResponse.statusCode).toBe(201);
+
+    const event = evidenceResponse.json<{
+      eventId: string;
+    }>();
+
+    const batchResponse = await app.inject({
+      method: "POST",
+      url: "/v1/batches",
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      },
+      payload: {
+        batchSize: 10
+      }
+    });
+
+    expect(batchResponse.statusCode).toBe(201);
+
+    const batch = batchResponse.json<{
+      id: string;
+    }>();
+
+    const anchorResponse = await app.inject({
+      method: "POST",
+      url: `/v1/batches/${batch.id}/anchor`,
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      }
+    });
+
+    expect(anchorResponse.statusCode).toBe(200);
+
+    const version = await pool.query<{
+      id: string;
+    }>(
+      `
+      SELECT rv.id
+      FROM resource_versions rv
+      JOIN resources r
+        ON r.id = rv.resource_id
+      WHERE r.id = $1
+      ORDER BY rv.version DESC
+      LIMIT 1
+      `,
+      [resource.id]
+    );
+
+    expect(version.rows[0]).toBeTruthy();
+
+    await pool.query(
+      `
+      UPDATE resource_versions
+      SET state = jsonb_set(
+        state,
+        '{amount}',
+        '999999'
+      )
+      WHERE id = $1
+      `,
+      [version.rows[0].id]
+    );
+
+    const verifyResponse = await app.inject({
+      method: "GET",
+      url: `/v1/verify/${event.eventId}`,
+      headers: {
+        authorization: "Bearer dev-member-token"
+      }
+    });
+
+    expect(verifyResponse.statusCode).toBe(200);
+
+    const verification = verifyResponse.json<{
+      valid: boolean;
+      reason: string;
+      eventId: string;
+    }>();
+
+    expect(verification.valid).toBe(false);
+    expect(verification.reason).toBe("STATE_TAMPERED");
+    expect(verification.eventId).toBe(event.eventId);
+  });
+
+  it("detects an anchor mismatch through the API", async () => {
+    const externalId = `verify-anchor-${Date.now()}`;
+
+    const resourceResponse = await app.inject({
+      method: "POST",
+      url: "/v1/resources",
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        resourceType: "purchase",
+        externalId
+      }
+    });
+
+    expect(resourceResponse.statusCode).toBe(201);
+
+    const resource = resourceResponse.json<{ id: string }>();
+
+    const evidenceResponse = await app.inject({
+      method: "POST",
+      url: `/v1/resources/${resource.id}/events`,
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        eventType: "create",
+        state: {
+          customer: "API Anchor Test",
+          amount: 75000,
+          currency: "INR",
+          status: "open"
+        }
+      }
+    });
+
+    expect(evidenceResponse.statusCode).toBe(201);
+
+    const event = evidenceResponse.json<{ eventId: string }>();
+
+    const batchResponse = await app.inject({
+      method: "POST",
+      url: "/v1/batches",
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      },
+      payload: {
+        batchSize: 10
+      }
+    });
+
+    expect(batchResponse.statusCode).toBe(201);
+
+    const batch = batchResponse.json<{ id: string }>();
+
+    const anchorResponse = await app.inject({
+      method: "POST",
+      url: `/v1/batches/${batch.id}/anchor`,
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      }
+    });
+
+    expect(anchorResponse.statusCode).toBe(200);
+
+    await pool.query(
+      `
+      UPDATE anchor_batches
+      SET merkle_root = encode(
+        digest('tampered-api-anchor', 'sha256'),
+        'hex'
+      )
+      WHERE id = $1
+      `,
+      [batch.id]
+    );
+
+    const verifyResponse = await app.inject({
+      method: "GET",
+      url: `/v1/verify/${event.eventId}`,
+      headers: {
+        authorization: "Bearer dev-member-token"
+      }
+    });
+
+    expect(verifyResponse.statusCode).toBe(200);
+
+    const verification = verifyResponse.json<{
+      valid: boolean;
+      reason: string;
+      eventId: string;
+    }>();
+
+    expect(verification.valid).toBe(false);
+    expect(verification.reason).toBe("ANCHOR_MISMATCH");
+    expect(verification.eventId).toBe(event.eventId);
+  });
+
+  it("denies cross-tenant verification access", async () => {
+    const externalId = `verify-cross-tenant-${Date.now()}`;
+
+    const resourceResponse = await app.inject({
+      method: "POST",
+      url: "/v1/resources",
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        resourceType: "purchase",
+        externalId
+      }
+    });
+
+    expect(resourceResponse.statusCode).toBe(201);
+
+    const resource = resourceResponse.json<{
+      id: string;
+    }>();
+
+    const evidenceResponse = await app.inject({
+      method: "POST",
+      url: `/v1/resources/${resource.id}/events`,
+      headers: {
+        authorization: "Bearer dev-member-token"
+      },
+      payload: {
+        eventType: "create",
+        state: {
+          customer: "Tenant A Private Event",
+          amount: 125000,
+          currency: "INR",
+          status: "open"
+        }
+      }
+    });
+
+    expect(evidenceResponse.statusCode).toBe(201);
+
+    const event = evidenceResponse.json<{
+      eventId: string;
+    }>();
+
+    const batchResponse = await app.inject({
+      method: "POST",
+      url: "/v1/batches",
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      },
+      payload: {
+        batchSize: 10
+      }
+    });
+
+    expect(batchResponse.statusCode).toBe(201);
+
+    const batch = batchResponse.json<{
+      id: string;
+    }>();
+
+    const anchorResponse = await app.inject({
+      method: "POST",
+      url: `/v1/batches/${batch.id}/anchor`,
+      headers: {
+        authorization: "Bearer dev-admin-token"
+      }
+    });
+
+    expect(anchorResponse.statusCode).toBe(200);
+
+    const ownerVerification = await app.inject({
+      method: "GET",
+      url: `/v1/verify/${event.eventId}`,
+      headers: {
+        authorization: "Bearer dev-member-token"
+      }
+    });
+
+    expect(ownerVerification.statusCode).toBe(200);
+
+    const ownerResult = ownerVerification.json<{
+      valid: boolean;
+      reason: string;
+    }>();
+
+    expect(ownerResult.valid).toBe(true);
+    expect(ownerResult.reason).toBe("VALID");
+
+    const crossTenantVerification = await app.inject({
+      method: "GET",
+      url: `/v1/verify/${event.eventId}`,
+      headers: {
+        authorization: "Bearer tenant-b-token"
+      }
+    });
+
+    expect(crossTenantVerification.statusCode).toBe(404);
+    expect(crossTenantVerification.json()).toEqual({
+      error: "EVENT_NOT_FOUND"
+    });
+  });
+
   it("audits successful batch anchoring", async () => {
     const externalId = `audit-anchor-${Date.now()}`;
 
@@ -416,7 +967,6 @@ describe("API security boundary", () => {
       url: "/v1/resources",
       payload: {
         resourceType: "purchase",
-        externalId: `auth-failure-${Date.now()}`
       }
     });
 

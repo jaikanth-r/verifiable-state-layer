@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { pool } from "../config/database.js";
 import type { AuthContext } from "./auth-context.js";
+import { requireResourceWriteAccess } from "./event-access.js";
 import { servicesPromise } from "./application.js";
 import {
   createEvidenceEvent,
@@ -15,9 +16,14 @@ export async function protectEvidence(
 ) {
   const { batchService } = await servicesPromise;
 
+  const access = await requireResourceWriteAccess(
+    auth,
+    resourceId
+  );
+
   const retried =
     await batchService.retryUnanchoredBatchForResource(
-      auth.tenantId,
+      access.ownerTenantId,
       resourceId,
       auth.userId,
       requestId
@@ -31,7 +37,7 @@ export async function protectEvidence(
   }
 
   const batch = await batchService.createPendingBatch(
-    auth.tenantId,
+    access.ownerTenantId,
     100,
     auth.userId,
     requestId
@@ -45,7 +51,7 @@ export async function protectEvidence(
   }
 
   const anchored = await batchService.anchorBatch(
-    auth.tenantId,
+    access.ownerTenantId,
     batch.id,
     auth.userId,
     requestId
@@ -77,6 +83,11 @@ export async function createEvent(
   try {
     await client.query("BEGIN");
 
+    await requireResourceWriteAccess(
+      auth,
+      resourceId
+    );
+
     const resource = await client.query<{
       id: string;
       resource_type: string;
@@ -86,10 +97,9 @@ export async function createEvent(
       SELECT id, resource_type, external_id
       FROM resources
       WHERE id = $1
-        AND tenant_id = $2
       FOR UPDATE
       `,
-      [resourceId, auth.tenantId]
+      [resourceId]
     );
 
     const resourceRow = resource.rows[0];

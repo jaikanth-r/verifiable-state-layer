@@ -1,7 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { createEvent } from "../services/evidence-service.js";
+import {
+  createEvent,
+  protectEvidence
+} from "../services/evidence-service.js";
 import { requireRole } from "../services/authorization.js";
+
+const resourceIdParamSchema = z.object({
+  resourceId: z.string().uuid()
+}).strict();
 
 const createEventSchema = z.object({
   eventType: z.enum([
@@ -17,9 +24,55 @@ const createEventSchema = z.object({
 
 export async function evidenceRoutes(app: FastifyInstance) {
   app.post(
+    "/v1/resources/:resourceId/protect",
+    async (request, reply) => {
+      requireRole(request.auth, "member");
+
+      const parsedParams = resourceIdParamSchema.safeParse(request.params);
+      if (!parsedParams.success) {
+        return reply.code(400).send({
+          error: "INVALID_REQUEST",
+          details: parsedParams.error.flatten()
+        });
+      }
+
+      const { resourceId } = parsedParams.data;
+
+      try {
+        const result = await protectEvidence(
+          request.auth,
+          resourceId,
+          request.id
+        );
+
+        return reply.send(result);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "Resource not found"
+        ) {
+          return reply.code(404).send({
+            error: "RESOURCE_NOT_FOUND"
+          });
+        }
+
+        throw error;
+      }
+    }
+  );
+
+  app.post(
     "/v1/resources/:resourceId/events",
     async (request, reply) => {
       requireRole(request.auth, "member");
+      const parsedParams = resourceIdParamSchema.safeParse(request.params);
+      if (!parsedParams.success) {
+        return reply.code(400).send({
+          error: "INVALID_REQUEST",
+          details: parsedParams.error.flatten()
+        });
+      }
+
       const parsed = createEventSchema.safeParse(request.body);
 
       if (!parsed.success) {
@@ -32,7 +85,7 @@ export async function evidenceRoutes(app: FastifyInstance) {
       try {
         const event = await createEvent(
           request.auth,
-          (request.params as { resourceId: string }).resourceId,
+          parsedParams.data.resourceId,
           parsed.data,
           request.id
         );

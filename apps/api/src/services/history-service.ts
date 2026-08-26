@@ -1,23 +1,12 @@
 import { pool } from "../config/database.js";
 import type { AuthContext } from "./auth-context.js";
+import { requireResourceAccess } from "./resource-access.js";
 
 export async function getResourceHistory(
   auth: AuthContext,
   resourceId: string
 ) {
-  const resource = await pool.query<{ id: string }>(
-    `
-    SELECT id
-    FROM resources
-    WHERE id = $1
-      AND tenant_id = $2
-    `,
-    [resourceId, auth.tenantId]
-  );
-
-  if (resource.rowCount === 0) {
-    throw new Error("Resource not found");
-  }
+  await requireResourceAccess(auth, resourceId);
 
   const result = await pool.query<{
     version: number;

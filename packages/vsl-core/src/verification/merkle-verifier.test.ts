@@ -183,10 +183,30 @@ describe("MerkleVerifier", () => {
     const result = await verifier.verifyEvent(TEST_TENANT_ID, v2.eventId);
 
     expect(result.valid).toBe(true);
+    expect(result.reason).toBe("VALID");
     expect(result.eventId).toBe(v2.eventId);
     expect(result.batchId).toBe(batch?.id);
     expect(result.merkleRoot).toBe(batch?.merkleRoot);
     expect(result.proof).not.toBeNull();
+  });
+
+  it("rejects an unanchored event", async () => {
+    const v1 = await seedEvent(
+      "00000000-0000-4000-8000-000000000401",
+      1,
+      null
+    );
+
+    const result = await verifier.verifyEvent(
+      TEST_TENANT_ID,
+      v1.eventId
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe("NOT_ANCHORED");
+    expect(result.batchId).toBe("");
+    expect(result.merkleRoot).toBe("");
+    expect(result.proof).toBeNull();
   });
 
   it("rejects an unknown event", async () => {
@@ -196,7 +216,114 @@ describe("MerkleVerifier", () => {
     );
 
     expect(result.valid).toBe(false);
+    expect(result.reason).toBe("EVENT_NOT_FOUND");
     expect(result.proof).toBeNull();
+  });
+
+  it("detects a modified anchor root", async () => {
+    const v1 = await seedEvent(
+      "00000000-0000-4000-8000-000000000301",
+      1,
+      null
+    );
+
+    const batch = await batchService.createPendingBatch(TEST_TENANT_ID);
+
+    expect(batch).not.toBeNull();
+
+    await pool.query(
+      `
+      UPDATE anchor_batches
+      SET merkle_root = encode(
+        digest('tampered-anchor', 'sha256'),
+        'hex'
+      )
+      WHERE id = $1
+      `,
+      [batch?.id]
+    );
+
+    const result = await verifier.verifyEvent(
+      TEST_TENANT_ID,
+      v1.eventId
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe("ANCHOR_MISMATCH");
+  });
+
+  it("detects a modified resource version hash", async () => {
+    const v1 = await seedEvent(
+      "00000000-0000-4000-8000-000000000501",
+      1,
+      null
+    );
+
+    await batchService.createPendingBatch(TEST_TENANT_ID);
+
+    await pool.query(
+      `
+      UPDATE resource_versions
+      SET state_hash = encode(
+        digest('tampered-resource-version-hash', 'sha256'),
+        'hex'
+      )
+      WHERE id = (
+        SELECT version_id
+        FROM evidence_events
+        WHERE event_id = $1
+      )
+      `,
+      [v1.eventId]
+    );
+
+    const result = await verifier.verifyEvent(
+      TEST_TENANT_ID,
+      v1.eventId
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe("STATE_TAMPERED");
+  });
+
+  it("detects a modified resource version predecessor hash", async () => {
+    const v1 = await seedEvent(
+      "00000000-0000-4000-8000-000000000601",
+      1,
+      null
+    );
+
+    const v2 = await seedEvent(
+      "00000000-0000-4000-8000-000000000602",
+      2,
+      v1.stateHash
+    );
+
+    await batchService.createPendingBatch(TEST_TENANT_ID);
+
+    await pool.query(
+      `
+      UPDATE resource_versions
+      SET previous_state_hash = encode(
+        digest('tampered-predecessor', 'sha256'),
+        'hex'
+      )
+      WHERE id = (
+        SELECT version_id
+        FROM evidence_events
+        WHERE event_id = $1
+      )
+      `,
+      [v2.eventId]
+    );
+
+    const result = await verifier.verifyEvent(
+      TEST_TENANT_ID,
+      v2.eventId
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe("STATE_TAMPERED");
   });
 
   it("detects a modified stored event hash", async () => {
@@ -223,5 +350,6 @@ describe("MerkleVerifier", () => {
     const result = await verifier.verifyEvent(TEST_TENANT_ID, v1.eventId);
 
     expect(result.valid).toBe(false);
+    expect(result.reason).toBe("STATE_TAMPERED");
   });
 });

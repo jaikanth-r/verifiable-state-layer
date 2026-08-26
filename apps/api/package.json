@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "test": "vitest run",
+    "test": "vitest run --config=vitest.config.mjs --passWithNoTests",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },

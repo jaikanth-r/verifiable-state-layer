@@ -3,6 +3,7 @@ import { resolveAuthContext } from "./identity-resolver.js";
 
 const DEV_TOKENS: Record<string, string> = {
   "dev-token": "dev-admin",
+  "dev-owner-token": "dev-admin",
   "tenant-b-token": "tenant-b-user",
   "dev-admin-token": "dev-admin-user",
   "dev-member-token": "dev-member-user"

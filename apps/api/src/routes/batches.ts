@@ -3,6 +3,10 @@ import { z } from "zod";
 import { servicesPromise } from "../services/application.js";
 import { requireRole } from "../services/authorization.js";
 
+const batchIdParamSchema = z.object({
+  batchId: z.string().uuid()
+}).strict();
+
 const createBatchSchema = z.object({
   batchSize: z.number().int().positive().max(1000).optional()
 }).strict();
@@ -37,7 +41,15 @@ export async function batchRoutes(app: FastifyInstance) {
 
   app.post("/v1/batches/:batchId/anchor", async (request, reply) => {
     requireRole(request.auth, "admin");
-    const { batchId } = request.params as { batchId: string };
+    const parsedParams = batchIdParamSchema.safeParse(request.params);
+    if (!parsedParams.success) {
+      return reply.code(400).send({
+        error: "INVALID_REQUEST",
+        details: parsedParams.error.flatten()
+      });
+    }
+
+    const { batchId } = parsedParams.data;
 
     const { batchService } = await servicesPromise;
 
@@ -74,7 +86,15 @@ export async function batchRoutes(app: FastifyInstance) {
   });
 
   app.get("/v1/batches/:batchId", async (request, reply) => {
-    const { batchId } = request.params as { batchId: string };
+    const parsedParams = batchIdParamSchema.safeParse(request.params);
+    if (!parsedParams.success) {
+      return reply.code(400).send({
+        error: "INVALID_REQUEST",
+        details: parsedParams.error.flatten()
+      });
+    }
+
+    const { batchId } = parsedParams.data;
 
     const { batchService } = await servicesPromise;
 

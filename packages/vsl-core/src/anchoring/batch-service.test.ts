@@ -324,6 +324,50 @@ describe("MerkleBatchService", () => {
     });
   });
 
+  it("does not claim the same event in concurrent batch creation", async () => {
+    await insertEvent(
+      "00000000-0000-0000-0000-000000000091",
+      1,
+      null
+    );
+
+    const serviceA = new MerkleBatchService(pool);
+    const serviceB = new MerkleBatchService(pool);
+
+    const [batchA, batchB] = await Promise.all([
+      serviceA.createPendingBatch(TEST_TENANT_ID, 1),
+      serviceB.createPendingBatch(TEST_TENANT_ID, 1)
+    ]);
+
+    expect(batchA).not.toBeNull();
+    expect(batchB).toBeNull();
+
+    const rows = await pool.query<{
+      count: number;
+    }>(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM evidence_events
+      WHERE anchor_batch_id IS NOT NULL
+      `
+    );
+
+    expect(rows.rows[0]?.count).toBe(1);
+
+    const batches = await pool.query<{
+      count: number;
+    }>(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM anchor_batches
+      WHERE tenant_id = $1
+      `,
+      [TEST_TENANT_ID]
+    );
+
+    expect(batches.rows[0]?.count).toBe(1);
+  });
+
   it("marks a batch as failed when anchoring fails", async () => {
     await insertEvent(
       "00000000-0000-4000-8000-000000000021",

@@ -136,6 +136,41 @@ describe("PostgresEvidenceRepository", () => {
     );
   });
 
+  it("serializes concurrent version writes for the same resource", async () => {
+    const v1 = createV1();
+
+    await repository.save(TEST_TENANT_ID, v1);
+
+    const v2a = createV2(v1.stateHash);
+    const v2b = createV2(v1.stateHash);
+
+    const results = await Promise.allSettled([
+      repository.save(TEST_TENANT_ID, v2a),
+      repository.save(TEST_TENANT_ID, v2b)
+    ]);
+
+    const fulfilled = results.filter(
+      (result) => result.status === "fulfilled"
+    );
+    const rejected = results.filter(
+      (result) => result.status === "rejected"
+    );
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    const history = await repository.getHistory(
+      TEST_TENANT_ID,
+      "deal",
+      "deal-001"
+    );
+
+    expect(history).toHaveLength(2);
+    expect(history[0].version).toBe(1);
+    expect(history[1].version).toBe(2);
+    expect(history[1].previousStateHash).toBe(v1.stateHash);
+  });
+
   it("rejects an incorrect predecessor hash", async () => {
     const v1 = createV1();
 

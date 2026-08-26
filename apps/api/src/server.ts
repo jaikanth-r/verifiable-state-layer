@@ -6,6 +6,7 @@ import rateLimit from "@fastify/rate-limit";
 import { resourceRoutes } from "./routes/resources.js";
 import { evidenceRoutes } from "./routes/evidence.js";
 import { historyRoutes } from "./routes/history.js";
+import { resourceParticipantRoutes } from "./routes/resource-participants.js";
 import { batchRoutes } from "./routes/batches.js";
 import { verificationRoutes } from "./routes/verification.js";
 import { auditRoutes } from "./routes/audit.js";
@@ -26,16 +27,25 @@ export function buildServer(options: ServerOptions = {}) {
 
   registerRequestContext(app);
 
-  const allowedOrigins = (process.env.CORS_ORIGINS ?? "")
+  const nodeEnv = process.env.NODE_ENV ?? "development";
+  const configuredOrigins = (process.env.CORS_ORIGINS ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
 
+  if (nodeEnv === "production" && configuredOrigins.length === 0) {
+    throw new Error(
+      "CORS_ORIGINS is required when NODE_ENV=production"
+    );
+  }
+
+  const allowedOrigins =
+    configuredOrigins.length > 0
+      ? configuredOrigins
+      : ["http://127.0.0.1:5173", "http://localhost:5173"];
+
   app.register(cors, {
-    origin:
-      allowedOrigins.length > 0
-        ? allowedOrigins
-        : ["http://127.0.0.1:5173", "http://localhost:5173"],
+    origin: allowedOrigins,
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     maxAge: 600
@@ -89,6 +99,7 @@ export function buildServer(options: ServerOptions = {}) {
     await scope.register(resourceRoutes);
     await scope.register(evidenceRoutes);
     await scope.register(historyRoutes);
+    await scope.register(resourceParticipantRoutes);
     await scope.register(batchRoutes);
     await scope.register(verificationRoutes);
     await scope.register(auditRoutes);

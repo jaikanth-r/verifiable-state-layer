@@ -1,16 +1,36 @@
 import type { FastifyInstance } from "fastify";
+
 import { z } from "zod";
-import { createResource } from "../services/resource-service.js";
+
+import {
+  createResource,
+  listResources
+} from "../services/resource-service.js";
+
 import { requireRole } from "../services/authorization.js";
 
 const createResourceSchema = z.object({
-  resourceType: z.string().min(1).max(100),
-  externalId: z.string().min(1).max(255).optional()
+  resourceType: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
 });
 
 export async function resourceRoutes(app: FastifyInstance) {
+  app.get("/v1/resources", async (request, reply) => {
+    requireRole(request.auth, "member");
+
+    const resources = await listResources(request.auth);
+
+    return reply.send({
+      items: resources
+    });
+  });
+
   app.post("/v1/resources", async (request, reply) => {
     requireRole(request.auth, "member");
+
     const parsed = createResourceSchema.safeParse(request.body);
 
     if (!parsed.success) {

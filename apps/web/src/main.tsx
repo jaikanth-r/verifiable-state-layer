@@ -1,520 +1,59 @@
-import React, { useState } from "react";
+import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
+
 import {
-  createResource,
-  createEvent,
-  createBatch,
-  anchorBatch,
-  getHistory,
-  getBatch,
-  verifyEvent,
-  getAuditEvents,
-  type AnchorBatch,
-  type VerificationResult,
-  type Version,
-  type AuditPage
-} from "./api";
+  AppShell,
+  type AppSection
+} from "./components/AppShell";
+import { DashboardView } from "./views/DashboardView";
+import { RecordsView } from "./views/RecordsView";
+import { VerifyView } from "./views/VerifyView";
+import { AuditView } from "./views/AuditView";
+
 import "./styles.css";
 
 function App() {
-  const [resourceId, setResourceId] = useState("");
-  const [recordType, setRecordType] = useState("purchase");
-  const [externalId, setExternalId] = useState("");
-  const [customer, setCustomer] = useState("");
-  const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState("INR");
-  const [status, setStatus] = useState("open");
-  const [versions, setVersions] = useState<Version[]>([]);
-  const [batch, setBatch] = useState<AnchorBatch | null>(null);
-  const [verification, setVerification] =
-    useState<VerificationResult | null>(null);
-  const [audit, setAudit] = useState<AuditPage | null>(null);
-  const [auditOutcome, setAuditOutcome] = useState<
-    "" | "success" | "failure" | "denied"
-  >("");
-  const [auditBusy, setAuditBusy] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [section, setSection] =
+    useState<AppSection>("dashboard");
 
-  async function loadAudit(offset = 0) {
-    setAuditBusy(true);
-
-    try {
-      const result = await getAuditEvents({
-        limit: 8,
-        offset,
-        outcome: auditOutcome || undefined
-      });
-
-      setAudit(result);
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to load audit events"
-      );
-    } finally {
-      setAuditBusy(false);
-    }
+  function handleSectionChange(nextSection: AppSection) {
+    setSection(nextSection);
   }
 
-  async function loadState(id: string) {
-    const history = await getHistory(id);
-    setVersions(history.versions);
+  function renderSection() {
+    switch (section) {
+      case "dashboard":
+        return (
+          <DashboardView
+            onCreateRecord={() => setSection("records")}
+            onVerify={() => setSection("verify")}
+            onAudit={() => setSection("audit")}
+          />
+        );
 
-    const latest = history.versions.at(-1);
-    if (!latest) {
-      setBatch(null);
-      setVerification(null);
-      return;
-    }
+      case "records":
+        return <RecordsView />;
 
-    const verificationResult = await verifyEvent(latest.eventId);
-    setVerification(verificationResult);
+      case "verify":
+        return <VerifyView />;
 
-    if (verificationResult.batchId) {
-      setBatch(await getBatch(verificationResult.batchId));
-    }
-  }
-
-  React.useEffect(() => {
-    void loadAudit(0);
-  }, [auditOutcome]);
-
-  async function handleCreateResource() {
-    setBusy(true);
-    setMessage("");
-
-    try {
-      const resource = await createResource({
-        resourceType: "deal",
-        externalId
-      });
-
-      setResourceId(resource.id);
-      setVersions([]);
-      setBatch(null);
-      setVerification(null);
-
-      setMessage(`Created ${resource.externalId}`);
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Failed"
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleCreateEvent() {
-    if (!resourceId) return;
-
-    setBusy(true);
-    setMessage("");
-
-    try {
-      const result = await createEvent(resourceId, {
-        eventType:
-          versions.length === 0 ? "create" : "update",
-        state: {
-          customer,
-          amount: Number(amount),
-          currency,
-          status
-        }
-      });
-
-      setBatch(result.protection.batch);
-      await loadState(resourceId);
-
-      setMessage(
-        result.protection.status === "protected"
-          ? "Record updated and protected"
-          : result.protection.status === "already_protected"
-            ? "Record updated"
-            : "Record updated, but blockchain protection is pending"
-      );
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Failed"
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleCreateBatch() {
-    setBusy(true);
-    setMessage("");
-
-    try {
-      const result = await createBatch(100);
-
-      if (!result) {
-        setMessage("No unbatched events");
-        return;
-      }
-
-      setBatch(result);
-      setMessage("Merkle batch created");
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Failed"
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleAnchor() {
-    if (!batch) return;
-
-    setBusy(true);
-    setMessage("");
-
-    try {
-      const anchored = await anchorBatch(batch.id);
-      setBatch(anchored);
-
-      if (resourceId) {
-        await loadState(resourceId);
-      }
-
-      setMessage("Anchored to Hyperledger Fabric");
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Failed"
-      );
-    } finally {
-      setBusy(false);
+      case "audit":
+        return <AuditView />;
     }
   }
 
   return (
-    <main className="app">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">VERIFIABLE STATE LAYER</p>
-          <h1>Integrity Dashboard</h1>
-        </div>
-
-        <span className="badge neutral">LIVE DEMO</span>
-      </header>
-
-      <section className="card demo-controls">
-        <p className="label">DEMO WORKFLOW</p>
-
-        <div className="resource-controls">
-          <input
-            value={externalId}
-            onChange={(event) =>
-              setExternalId(event.target.value)
-            }
-            placeholder="Resource external ID"
-          />
-
-          <button
-            onClick={() => void handleCreateResource()}
-            disabled={busy}
-          >
-            1. Create Resource
-          </button>
-
-          <button
-            onClick={() => void handleCreateEvent()}
-            disabled={busy || !resourceId}
-          >
-            2. Create Evidence
-          </button>
-
-          <button
-            onClick={() => void handleCreateBatch()}
-            disabled={busy || versions.length === 0}
-          >
-            3. Create Batch
-          </button>
-
-          <button
-            onClick={() => void handleAnchor()}
-            disabled={busy || !batch || batch.status === "anchored"}
-          >
-            4. Anchor to Fabric
-          </button>
-        </div>
-
-        {resourceId && (
-          <code className="resource-id">
-            Resource ID: {resourceId}
-          </code>
-        )}
-
-        {message && <p className="message">{message}</p>}
-      </section>
-
-      <section className="grid">
-        <article className="card wide">
-          <div className="card-header">
-            <div>
-              <p className="label">EVIDENCE HISTORY</p>
-              <h2>{versions.length} versions</h2>
-            </div>
-          </div>
-
-          {versions.length === 0 ? (
-            <p className="muted">
-              Create a resource and evidence event.
-            </p>
-          ) : (
-            <div className="timeline">
-              {versions.map((version) => (
-                <div
-                  className="timeline-item"
-                  key={version.eventId}
-                >
-                  <div className="timeline-marker" />
-
-                  <div className="timeline-content">
-                    <div className="timeline-top">
-                      <strong>
-                        Version {version.version}
-                      </strong>
-                      <span>{version.eventType}</span>
-                    </div>
-
-                    <p>{JSON.stringify(version.state)}</p>
-
-                    <code>{version.stateHash}</code>
-
-                    {version.previousStateHash && (
-                      <small>
-                        Previous: {version.previousStateHash}
-                      </small>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </article>
-
-        <article className="card">
-          <p className="label">MERKLE BATCH</p>
-          <h2>{batch?.status ?? "—"}</h2>
-
-          <div className="metric">
-            <span>Events</span>
-            <strong>{batch?.eventCount ?? "—"}</strong>
-          </div>
-
-          <div className="hash-box">
-            {batch?.merkleRoot ?? "No batch"}
-          </div>
-        </article>
-
-        <article className="card">
-          <p className="label">BLOCKCHAIN</p>
-
-          <div className="chain-status">
-            <span
-              className={
-                batch?.status === "anchored"
-                  ? "status-dot"
-                  : "status-dot muted"
-              }
-            />
-
-            <strong>
-              {batch?.status === "anchored"
-                ? "Anchored to Fabric"
-                : "Not anchored"}
-            </strong>
-          </div>
-
-          <div className="hash-box">
-            {batch?.blockchainReference ??
-              "No transaction"}
-          </div>
-        </article>
-
-        <article className="card wide verification">
-          <div>
-            <p className="label">INTEGRITY</p>
-
-            <h2
-              className={
-                verification?.valid
-                  ? "verified"
-                  : "not-verified"
-              }
-            >
-              {verification?.valid
-                ? "✓ VERIFIED"
-                : "Not verified"}
-            </h2>
-
-            <p className="muted">
-              Merkle proof verification against the stored
-              batch root.
-            </p>
-          </div>
-
-          {verification?.proof && (
-            <div className="proof-grid">
-              <div>
-                <span>Leaf</span>
-                <code>{verification.proof.leaf}</code>
-              </div>
-
-              <div>
-                <span>Root</span>
-                <code>{verification.proof.root}</code>
-              </div>
-
-              <div>
-                <span>Proof siblings</span>
-                <strong>
-                  {verification.proof.siblings.length}
-                </strong>
-              </div>
-            </div>
-          )}
-        </article>
-      </section>
-
-      <section className="card wide audit-panel">
-        <div className="card-header">
-          <div>
-            <p className="label">SECURITY AUDIT</p>
-            <h2>Recent events</h2>
-          </div>
-
-          <div className="audit-controls">
-            <select
-              value={auditOutcome}
-              onChange={(event) =>
-                setAuditOutcome(
-                  event.target.value as
-                    | ""
-                    | "success"
-                    | "failure"
-                    | "denied"
-                )
-              }
-              disabled={auditBusy}
-            >
-              <option value="">All outcomes</option>
-              <option value="success">Success</option>
-              <option value="failure">Failure</option>
-              <option value="denied">Denied</option>
-            </select>
-
-            <button
-              className="refresh"
-              onClick={() => void loadAudit(audit?.offset ?? 0)}
-              disabled={auditBusy}
-            >
-              Refresh
-            </button>
-          </div>
-        </div>
-
-        {auditBusy && (
-          <p className="muted audit-empty">
-            Loading audit events…
-          </p>
-        )}
-
-        {!auditBusy && audit?.items.length === 0 && (
-          <p className="muted audit-empty">
-            No audit events found.
-          </p>
-        )}
-
-        {!auditBusy && audit && audit.items.length > 0 && (
-          <>
-            <div className="audit-list">
-              {audit.items.map((event) => (
-                <div className="audit-row" key={event.id}>
-                  <div className="audit-main">
-                    <div className="audit-top">
-                      <strong>{event.action}</strong>
-                      <span
-                        className={`audit-outcome ${event.outcome}`}
-                      >
-                        {event.outcome}
-                      </span>
-                    </div>
-
-                    <div className="audit-meta">
-                      <span>
-                        {new Date(
-                          event.occurredAt
-                        ).toLocaleString()}
-                      </span>
-
-                      {event.resourceId && (
-                        <code>{event.resourceId}</code>
-                      )}
-
-                      {event.requestId && (
-                        <code>{event.requestId}</code>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="audit-pagination">
-              <button
-                className="refresh"
-                onClick={() =>
-                  void loadAudit(
-                    Math.max(0, audit.offset - audit.limit)
-                  )
-                }
-                disabled={
-                  auditBusy ||
-                  audit.offset === 0
-                }
-              >
-                Previous
-              </button>
-
-              <span className="muted">
-                {audit.offset + 1}–
-                {Math.min(
-                  audit.offset + audit.items.length,
-                  audit.count
-                )}{" "}
-                of {audit.count}
-              </span>
-
-              <button
-                className="refresh"
-                onClick={() =>
-                  void loadAudit(
-                    audit.offset + audit.limit
-                  )
-                }
-                disabled={
-                  auditBusy ||
-                  audit.offset + audit.limit >= audit.count
-                }
-              >
-                Next
-              </button>
-            </div>
-          </>
-        )}
-      </section>
-
-    </main>
+    <AppShell
+      section={section}
+      onSectionChange={handleSectionChange}
+    >
+      {renderSection()}
+    </AppShell>
   );
 }
 
 createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
+  <StrictMode>
     <App />
-  </React.StrictMode>
+  </StrictMode>
 );

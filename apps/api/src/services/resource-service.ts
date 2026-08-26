@@ -1,12 +1,9 @@
-import { randomUUID } from "node:crypto";
-
 import { pool } from "../config/database.js";
 
 import type { AuthContext } from "./auth-context.js";
 
 export interface CreateResourceInput {
   resourceType: string;
-  externalId?: string;
 }
 
 export interface ResourceRecord {
@@ -16,16 +13,59 @@ export interface ResourceRecord {
   createdAt: string;
 }
 
+function referenceSlug(recordType: string): string {
+  return recordType
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "RECORD";
+}
+
 export async function createResource(
   auth: AuthContext,
   input: CreateResourceInput,
   requestId?: string
 ): Promise<ResourceRecord> {
-  const externalId = input.externalId ?? randomUUID();
   const client = await pool.connect();
+  let externalId = "";
 
   try {
     await client.query("BEGIN");
+
+    const year = new Date().getUTCFullYear();
+    const slug = referenceSlug(input.resourceType);
+
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      [`${slug}:${year}`]
+    );
+
+    const counter = await client.query<{ next_number: string }>(
+      `
+      INSERT INTO resource_reference_counters (
+        record_type,
+        reference_year,
+        next_number
+      )
+      VALUES ($1, $2, 2)
+      ON CONFLICT (record_type, reference_year)
+      DO UPDATE
+      SET next_number =
+        resource_reference_counters.next_number + 1
+      RETURNING next_number - 1 AS next_number
+      `,
+      [slug, year]
+    );
+
+    const sequence = Number(counter.rows[0]?.next_number);
+
+    if (!Number.isSafeInteger(sequence) || sequence <= 0) {
+      throw new Error("Unable to generate resource reference");
+    }
+
+    externalId =
+      `VSL-${slug}-${year}-${String(sequence).padStart(6, "0")}`;
 
     const result = await client.query<{
       id: string;
@@ -104,4 +144,35 @@ export async function createResource(
   } finally {
     client.release();
   }
+}
+
+
+export async function listResources(
+  auth: AuthContext
+): Promise<ResourceRecord[]> {
+  const result = await pool.query<{
+    id: string;
+    resource_type: string;
+    external_id: string;
+    created_at: Date;
+  }>(
+    `
+    SELECT
+      id,
+      resource_type,
+      external_id,
+      created_at
+    FROM resources
+    WHERE tenant_id = $1
+    ORDER BY created_at DESC, id DESC
+    `,
+    [auth.tenantId]
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    resourceType: row.resource_type,
+    externalId: row.external_id,
+    createdAt: row.created_at.toISOString()
+  }));
 }
