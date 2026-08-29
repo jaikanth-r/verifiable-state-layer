@@ -1,3 +1,5 @@
+import { getAccessToken } from "./auth-token";
+
 const API_BASE = (
   import.meta.env.VITE_API_BASE_URL ??
   "http://127.0.0.1:3000"
@@ -92,10 +94,10 @@ async function request<T>(
     headers.set("content-type", "application/json");
   }
 
-  const apiToken = import.meta.env.VITE_API_TOKEN;
+  const accessToken = getAccessToken();
 
-  if (apiToken && !headers.has("authorization")) {
-    headers.set("authorization", `Bearer ${apiToken}`);
+  if (accessToken && !headers.has("authorization")) {
+    headers.set("authorization", `Bearer ${accessToken}`);
   }
 
   const response = await fetch(`${API_BASE}${path}`, {

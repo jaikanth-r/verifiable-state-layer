@@ -7,11 +7,14 @@
     "build": "vite build",
     "test": "vitest run --passWithNoTests",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
+    "oidc-client-ts": "^3.5.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "react-oidc-context": "^3.3.1"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",
