@@ -13,11 +13,13 @@ import { resolveAuthContext } from "./identity-resolver.js";
 
 interface OidcClaims extends JWTPayload {
   sub: string;
+  email?: string;
 }
 
 export interface OidcAuthenticatorOptions {
   issuer?: string;
   audience?: string;
+  email?: string;
   jwks?: JWTVerifyGetKey;
 }
 
@@ -63,7 +65,7 @@ export class OidcAuthenticator implements Authenticator {
         return null;
       }
 
-      return await resolveAuthContext(payload.sub);
+      return await resolveAuthContext(payload.sub, payload.email);
     } catch (error) {
       console.error("[VSL OIDC AUTH FAILURE]", {
         error:
