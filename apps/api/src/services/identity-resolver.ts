@@ -2,7 +2,8 @@ import { pool } from "../config/database.js";
 import type { AuthContext } from "./auth-context.js";
 
 export async function resolveAuthContext(
-  externalSubject: string
+  externalSubject: string,
+  email?: string
 ): Promise<AuthContext | null> {
   const result = await pool.query<{
     user_id: string;
@@ -26,13 +27,62 @@ export async function resolveAuthContext(
 
   const row = result.rows[0];
 
-  if (!row) {
+  if (row) {
+    return {
+      userId: row.user_id,
+      tenantId: row.tenant_id,
+      role: row.role
+    };
+  }
+
+  if (!email) {
     return null;
   }
 
-  return {
-    userId: row.user_id,
-    tenantId: row.tenant_id,
-    role: row.role
-  };
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const tenantSlug = `user-${externalSubject.slice(-8)}`;
+
+    const tenant = await client.query<{ id: string }>(
+      `
+      INSERT INTO tenants (name, slug)
+      VALUES ($1, $2)
+      RETURNING id
+      `,
+      [email, tenantSlug]
+    );
+
+    const user = await client.query<{ id: string }>(
+      `
+      INSERT INTO users (external_subject, email)
+      VALUES ($1, $2)
+      RETURNING id
+      `,
+      [externalSubject, email]
+    );
+
+    await client.query(
+      `
+      INSERT INTO tenant_memberships (tenant_id, user_id, role)
+      VALUES ($1, $2, 'owner')
+      `,
+      [tenant.rows[0].id, user.rows[0].id]
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      userId: user.rows[0].id,
+      tenantId: tenant.rows[0].id,
+      role: "owner"
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
