@@ -18,7 +18,7 @@ COPY packages packages
 COPY database database
 COPY scripts scripts
 
-RUN npm run build --workspace=@vsl/api
+RUN npm run build
 
 FROM node:20-alpine AS runtime
 
