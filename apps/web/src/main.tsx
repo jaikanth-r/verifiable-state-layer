@@ -17,10 +17,10 @@ import "./styles.css";
 
 function App() {
   const auth = useAuth();
+  const token = auth.user?.access_token ?? null;
+  const [tokenReady, setTokenReady] = useState(false);
 
   useEffect(() => {
-    const token = auth.user?.access_token ?? null;
-
     console.log("[VSL AUTH]", {
       isAuthenticated: auth.isAuthenticated,
       hasAccessToken: Boolean(token),
@@ -29,9 +29,15 @@ function App() {
     });
 
     setAccessToken(token);
+
+    if (auth.isAuthenticated && token) {
+      setTokenReady(true);
+    } else {
+      setTokenReady(false);
+    }
   }, [
     auth.isAuthenticated,
-    auth.user?.access_token,
+    token,
     auth.user?.expires_at
   ]);
 
@@ -65,6 +71,11 @@ function App() {
       </main>
     );
   }
+
+  if (!tokenReady) {
+    return <div>Preparing authenticated session…</div>;
+  }
+
 
   function handleSectionChange(nextSection: AppSection) {
     setSection(nextSection);
