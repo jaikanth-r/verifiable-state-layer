@@ -64,7 +64,19 @@ export class OidcAuthenticator implements Authenticator {
       }
 
       return await resolveAuthContext(payload.sub);
-    } catch {
+    } catch (error) {
+      console.error("[VSL OIDC AUTH FAILURE]", {
+        error:
+          error instanceof Error
+            ? {
+                name: error.name,
+                message: error.message
+              }
+            : String(error),
+        issuer: this.issuer,
+        audience: this.audience
+      });
+
       return null;
     }
   }
