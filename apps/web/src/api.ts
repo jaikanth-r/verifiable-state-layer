@@ -109,6 +109,14 @@ async function request<T>(
     headers.set("authorization", `Bearer ${accessToken}`);
   }
 
+  console.log("[VSL API AUTH AFTER]", {
+    path,
+    hasAccessToken: Boolean(accessToken),
+    authorizationHeaderAfter: headers.has("authorization"),
+    authorizationHeaderPrefix:
+      headers.get("authorization")?.slice(0, 7) ?? null
+  });
+
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers
