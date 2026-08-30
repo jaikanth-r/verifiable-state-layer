@@ -19,8 +19,21 @@ function App() {
   const auth = useAuth();
 
   useEffect(() => {
-    setAccessToken(auth.user?.access_token ?? null);
-  }, [auth.user?.access_token]);
+    const token = auth.user?.access_token ?? null;
+
+    console.log("[VSL AUTH]", {
+      isAuthenticated: auth.isAuthenticated,
+      hasAccessToken: Boolean(token),
+      tokenLength: token?.length ?? 0,
+      expiresAt: auth.user?.expires_at ?? null
+    });
+
+    setAccessToken(token);
+  }, [
+    auth.isAuthenticated,
+    auth.user?.access_token,
+    auth.user?.expires_at
+  ]);
 
   const [section, setSection] =
     useState<AppSection>("dashboard");
