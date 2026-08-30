@@ -96,6 +96,15 @@ async function request<T>(
 
   const accessToken = getAccessToken();
 
+  console.log("[VSL API AUTH]", {
+    path,
+    hasAccessToken: Boolean(accessToken),
+    tokenLength: accessToken?.length ?? 0,
+    authorizationHeaderBefore: headers.has("authorization")
+  });
+
+
+
   if (accessToken && !headers.has("authorization")) {
     headers.set("authorization", `Bearer ${accessToken}`);
   }
