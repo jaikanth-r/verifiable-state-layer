@@ -26,8 +26,6 @@ export function buildServer(options: ServerOptions = {}) {
     logger: true
   });
 
-  registerRequestContext(app);
-
   const nodeEnv = process.env.NODE_ENV ?? "development";
   const configuredOrigins = (process.env.CORS_ORIGINS ?? "")
     .split(",")
@@ -51,6 +49,8 @@ export function buildServer(options: ServerOptions = {}) {
     allowedHeaders: ["Content-Type", "Authorization"],
     maxAge: 600
   });
+
+  registerRequestContext(app);
 
   app.register(helmet, {
     global: true
