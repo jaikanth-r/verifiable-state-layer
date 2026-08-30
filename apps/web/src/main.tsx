@@ -25,7 +25,7 @@ function App() {
       isAuthenticated: auth.isAuthenticated,
       hasAccessToken: Boolean(token),
       tokenLength: token?.length ?? 0,
-      tokenSegments: token?.split(".").length ?? 0,
+      tokenSegments: token ? token.split(".").length : 0,
       expiresAt: auth.user?.expires_at ?? null
     });
 
