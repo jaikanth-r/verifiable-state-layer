@@ -31,3 +31,5 @@ fabric-runtime/
 test-results/
 playwright-report/
 screenshots-local/
+.vercel
+.env*
