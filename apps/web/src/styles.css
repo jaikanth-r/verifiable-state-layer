@@ -2236,3 +2236,133 @@ h2 {
   }
 }
 
+
+/* ================================================================
+   VSL Minimal Authentication Screen
+   ================================================================ */
+
+.vsl-auth {
+  min-height: 100svh;
+  width: 100%;
+  box-sizing: border-box;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  padding: clamp(24px, 5vw, 64px);
+
+  background: #000000;
+  color: #ffffff;
+
+  text-align: center;
+}
+
+.vsl-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.vsl-brand h1 {
+  margin: 0;
+
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  font-size: clamp(64px, 12vw, 128px);
+  line-height: 0.9;
+  font-weight: 700;
+  letter-spacing: -0.06em;
+
+  color: #ffffff;
+}
+
+.vsl-brand p {
+  margin: clamp(16px, 2vw, 24px) 0 0;
+
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  font-size: clamp(11px, 1.5vw, 18px);
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: clamp(3px, 0.6vw, 7px);
+
+  color: #ffffff;
+}
+
+.vsl-signin {
+  margin-top: clamp(40px, 7vw, 72px);
+
+  min-width: clamp(160px, 25vw, 220px);
+  min-height: 48px;
+
+  padding: 12px 28px;
+
+  border: 1px solid #ffffff;
+  border-radius: 999px;
+
+  background: #ffffff;
+  color: #000000;
+
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  font-size: 15px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.vsl-signin:hover {
+  background: #000000;
+  color: #ffffff;
+}
+
+.vsl-signin:active {
+  transform: scale(0.97);
+}
+
+.vsl-signin:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 4px;
+}
+
+@media (max-width: 480px) {
+  .vsl-auth {
+    padding: 24px;
+  }
+
+  .vsl-brand h1 {
+    font-size: clamp(64px, 22vw, 96px);
+  }
+
+  .vsl-brand p {
+    font-size: 10px;
+    letter-spacing: 3px;
+  }
+
+  .vsl-signin {
+    width: min(100%, 220px);
+  }
+}
+

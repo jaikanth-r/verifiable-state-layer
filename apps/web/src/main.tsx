@@ -63,27 +63,19 @@ function App() {
 
   if (!auth.isAuthenticated) {
     return (
-      <main className="auth-screen">
-        <div className="auth-card">
-          <div className="brand-mark">V</div>
-
-          <p className="eyebrow">Verifiable State Layer</p>
-
-          <h1>Welcome to VSL</h1>
-
-          <p className="auth-copy">
-            Sign in to protect, evidence, and independently verify your
-            important state changes.
-          </p>
-
-          <button
-            type="button"
-            className="primary-button auth-button"
-            onClick={() => auth.signinRedirect()}
-          >
-            Sign in
-          </button>
+      <main className="vsl-auth">
+        <div className="vsl-brand">
+          <h1>VSL</h1>
+          <p>VERIFIABLE STATE LAYER</p>
         </div>
+
+        <button
+          type="button"
+          className="vsl-signin"
+          onClick={() => auth.signinRedirect()}
+        >
+          Sign in
+        </button>
       </main>
     );
   }
