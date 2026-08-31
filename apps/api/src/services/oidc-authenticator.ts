@@ -19,8 +19,27 @@ interface OidcClaims extends JWTPayload {
 export interface OidcAuthenticatorOptions {
   issuer?: string;
   audience?: string;
-  email?: string;
   jwks?: JWTVerifyGetKey;
+}
+
+async function fetchUserinfoEmail(
+  issuer: string,
+  token: string
+): Promise<string | undefined> {
+  try {
+    const response = await fetch(`${issuer}/oidc/v1/userinfo`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const data = (await response.json()) as { email?: string };
+    return data.email;
+  } catch {
+    return undefined;
+  }
 }
 
 export class OidcAuthenticator implements Authenticator {
@@ -65,9 +84,15 @@ export class OidcAuthenticator implements Authenticator {
         return null;
       }
 
-      console.log("[VSL OIDC CLAIMS]", { sub: payload.sub, email: payload.email });
+      let email = payload.email;
 
-      return await resolveAuthContext(payload.sub, payload.email);
+      if (!email) {
+        email = await fetchUserinfoEmail(this.issuer, token);
+      }
+
+      console.log("[VSL OIDC CLAIMS]", { sub: payload.sub, email });
+
+      return await resolveAuthContext(payload.sub, email);
     } catch (error) {
       console.error("[VSL OIDC AUTH FAILURE]", {
         error:
