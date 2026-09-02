@@ -64,10 +64,20 @@ function App() {
   if (!auth.isAuthenticated) {
     return (
       <main className="vsl-auth">
+        <div className="vsl-status">
+          <span className="vsl-status-dot" />
+          System operational
+        </div>
+
         <div className="vsl-brand">
           <h1>VSL</h1>
           <p>VERIFIABLE STATE LAYER</p>
         </div>
+
+        <p className="vsl-tagline">
+          Cryptographic evidence, Merkle integrity, and blockchain
+          anchoring for application state you can independently verify.
+        </p>
 
         <button
           type="button"
@@ -76,6 +86,8 @@ function App() {
         >
           Sign in
         </button>
+
+        <p className="vsl-footnote">Secured with ZITADEL · OIDC</p>
       </main>
     );
   }
